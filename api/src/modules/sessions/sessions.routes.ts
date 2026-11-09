@@ -121,8 +121,10 @@ async function routes(server: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest<{ Params: { sessionId?: string } }>, reply: FastifyReply) =>
-      handleExitBrowserSession(server, request, reply),
+    async (
+      request: FastifyRequest<{ Params: { sessionId?: string }; Body?: { sessionId?: unknown } }>,
+      reply: FastifyReply,
+    ) => handleExitBrowserSession(server, request, reply),
   );
 
   server.post(
@@ -138,8 +140,10 @@ async function routes(server: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest<{ Params: { sessionId?: string } }>, reply: FastifyReply) =>
-      handleExitBrowserSession(server, request, reply),
+    async (
+      request: FastifyRequest<{ Params: { sessionId?: string }; Body?: { sessionId?: unknown } }>,
+      reply: FastifyReply,
+    ) => handleExitBrowserSession(server, request, reply),
   );
 
   server.get(

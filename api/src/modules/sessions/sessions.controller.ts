@@ -83,10 +83,14 @@ export const handleLaunchBrowserSession = async (
 
 export const handleExitBrowserSession = async (
   server: FastifyInstance,
-  request: FastifyRequest<{ Params: { sessionId?: string } }>,
+  request: FastifyRequest<{ Params: { sessionId?: string }; Body?: { sessionId?: unknown } }>,
   reply: FastifyReply,
 ) => {
-  const sessionId = request.params?.sessionId;
+  // POST /v1/sessions/release with { sessionId } releases only that session
+  // (older clients use it as a fallback for the per-id route).
+  const bodyId =
+    request.body && typeof request.body.sessionId === "string" ? request.body.sessionId : undefined;
+  const sessionId = request.params?.sessionId ?? bodyId;
   try {
     if (!sessionId) {
       // POST /v1/sessions/release: release everything that is live.

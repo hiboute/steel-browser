@@ -1,5 +1,6 @@
 import { type FastifyInstance, type FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
+import { Duplex } from "stream";
 import { WebSocketServer } from "ws";
 import { WebSocketRegistryService } from "../../services/websocket-registry.service.js";
 import { WebSocketHandler, WebSocketHandlerContext } from "../../types/websocket.js";
@@ -11,6 +12,23 @@ export interface BrowserSocketOptions {
 
 // WebSocket server instance
 const wss = new WebSocketServer({ noServer: true });
+
+const SCOPED_SOCKET = /^\/v1\/sessions\/([^/]+)\/(cdp|cast|logs|pageId|recording)\/?$/;
+
+function rejectUpgrade(socket: Duplex, status: string) {
+  if (!socket.destroyed && socket.writable) {
+    try {
+      socket.end(`HTTP/1.1 ${status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`, () =>
+        socket.destroy(),
+      );
+      setTimeout(() => socket.destroy(), 1000).unref();
+    } catch {
+      socket.destroy();
+    }
+  } else {
+    socket.destroy();
+  }
+}
 
 // The Host header and request-target are client-controlled, so never let them throw here.
 export function parseUpgradeParams(url: string): Record<string, string> | null {
@@ -73,13 +91,41 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
       }
       fastify.log.info("Upgrading browser socket...");
 
+      // Session-scoped sockets: /v1/sessions/<id>/{cdp,cast,logs,pageId,recording},
+      // or the unscoped paths with ?sessionId=<id>. Anything else goes to the
+      // primary browser, as in single-session Steel.
+      const pathname = url.split("?", 1)[0];
+      const scoped = SCOPED_SOCKET.exec(pathname);
+      const sessionId = scoped?.[1] ?? params.sessionId;
+      const session = sessionId ? fastify.sessionService.getSession(sessionId) : undefined;
+      if (sessionId && !session) {
+        fastify.log.warn({ sessionId }, "Rejecting socket for unknown session");
+        rejectUpgrade(socket, "404 Not Found");
+        return;
+      }
+
       const context: WebSocketHandlerContext = {
         fastify,
         wss,
         params,
+        session,
+        cdpService: session?.cdpService ?? fastify.cdpService,
       };
 
-      const handler = registry.matchHandler(url);
+      if (scoped?.[2] === "cdp") {
+        fastify.log.info({ sessionId }, "Connecting to session CDP...");
+        try {
+          await context.cdpService.proxyWebSocket(request, socket, head);
+        } catch (err) {
+          fastify.log.error({ err }, "CDP WebSocket error");
+          socket.destroy();
+        }
+        return;
+      }
+
+      const handler = scoped
+        ? registry.getHandler(`/v1/sessions/${scoped[2]}`)
+        : registry.matchHandler(url);
 
       if (handler) {
         try {
@@ -91,7 +137,7 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
       } else {
         fastify.log.info("Connecting to CDP...");
         try {
-          await fastify.cdpService.proxyWebSocket(request, socket, head);
+          await context.cdpService.proxyWebSocket(request, socket, head);
         } catch (err) {
           fastify.log.error({ err }, "CDP WebSocket error");
           socket.destroy();

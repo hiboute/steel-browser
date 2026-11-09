@@ -104,8 +104,8 @@ async function routes(server: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest, reply: FastifyReply) =>
-      handleGetBrowserContext(server.cdpService, request, reply),
+    async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) =>
+      handleGetBrowserContext(server, request, reply),
   );
 
   server.post(
@@ -121,7 +121,7 @@ async function routes(server: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest, reply: FastifyReply) =>
+    async (request: FastifyRequest<{ Params: { sessionId?: string } }>, reply: FastifyReply) =>
       handleExitBrowserSession(server, request, reply),
   );
 
@@ -138,7 +138,7 @@ async function routes(server: FastifyInstance) {
         },
       },
     },
-    async (request: FastifyRequest, reply: FastifyReply) =>
+    async (request: FastifyRequest<{ Params: { sessionId?: string } }>, reply: FastifyReply) =>
       handleExitBrowserSession(server, request, reply),
   );
 
@@ -151,6 +151,25 @@ async function routes(server: FastifyInstance) {
         description: "Returns an HTML page with a live debugger view of the session",
         tags: ["Sessions"],
         summary: "Get session debugger view",
+        querystring: $ref("SessionStreamQuery"),
+        response: {
+          200: $ref("SessionStreamResponse"),
+        },
+      },
+    },
+    async (request: SessionStreamRequest, reply: FastifyReply) =>
+      handleGetSessionStream(server, request, reply),
+  );
+
+  server.get(
+    "/sessions/:sessionId/debug",
+    {
+      onRequest: [],
+      schema: {
+        operationId: "get_session_debugger_stream_by_id",
+        description: "Returns an HTML page with a live view of one session",
+        tags: ["Sessions"],
+        summary: "Get the live view of one session",
         querystring: $ref("SessionStreamQuery"),
         response: {
           200: $ref("SessionStreamResponse"),

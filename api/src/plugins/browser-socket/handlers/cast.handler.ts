@@ -17,7 +17,7 @@ export const castHandler: WebSocketHandler = {
       socket,
       head,
       context.wss,
-      context.fastify.sessionService,
+      context.session ?? context.fastify.sessionService.activeSession,
       context.params,
     );
   },

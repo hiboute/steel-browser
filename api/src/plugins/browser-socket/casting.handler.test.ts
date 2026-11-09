@@ -65,10 +65,10 @@ describe("handleCastSession cleanup", () => {
     };
 
     mockSessionService = {
-      activeSession: Promise.resolve({
-        id: "session-abc",
-        dimensions: { width: 1920, height: 1080 },
-      }),
+      id: "session-abc",
+      status: "live",
+      dimensions: { width: 1920, height: 1080 },
+      cdpService: { getWsEndpoint: () => "ws://127.0.0.1:9222/devtools/browser/x" },
     };
   });
 

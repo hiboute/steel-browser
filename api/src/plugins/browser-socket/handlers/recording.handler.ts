@@ -13,14 +13,14 @@ function handleRecordingWebSocket(context: WebSocketHandlerContext, ws: WebSocke
     }
   };
 
-  fastify.cdpService.on(EmitEvent.Recording, messageHandler);
+  context.cdpService.on(EmitEvent.Recording, messageHandler);
 
   // TODO: handle inputs to browser from client
   ws.on("message", async (message) => {});
 
   ws.on("close", () => {
     fastify.log.info("Recording WebSocket connection closed");
-    fastify.cdpService.removeListener(EmitEvent.Recording, messageHandler);
+    context.cdpService.removeListener(EmitEvent.Recording, messageHandler);
   });
 
   ws.on("error", (err) => {

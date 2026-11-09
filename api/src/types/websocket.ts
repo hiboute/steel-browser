@@ -2,11 +2,17 @@ import { IncomingMessage } from "http";
 import { Duplex } from "stream";
 import { WebSocketServer } from "ws";
 import { FastifyInstance } from "fastify";
+import type { CDPService } from "../services/cdp/cdp.service.js";
+import type { Session } from "../services/session.service.js";
 
 export interface WebSocketHandlerContext {
   fastify: FastifyInstance;
   wss: WebSocketServer;
   params: Record<string, string>;
+  /** The session the socket is scoped to (path /v1/sessions/<id>/... or ?sessionId=). */
+  session?: Session;
+  /** The browser to attach to: the session's, or the primary browser when unscoped. */
+  cdpService: CDPService;
 }
 
 export interface WebSocketHandler {

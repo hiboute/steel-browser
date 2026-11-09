@@ -3,8 +3,7 @@ import puppeteer, { Browser, CDPSession, Page } from "puppeteer-core";
 import { Duplex } from "stream";
 import WebSocket, { Server } from "ws";
 
-import { env } from "../../env.js";
-import { SessionService } from "../../services/session.service.js";
+import type { Session } from "../../services/session.service.js";
 import {
   CloseTabEvent,
   GetSelectedTextEvent,
@@ -21,20 +20,11 @@ export async function handleCastSession(
   socket: Duplex,
   head: Buffer,
   wss: Server,
-  sessionService: SessionService,
+  session: Session,
   params: Record<string, string> | undefined,
 ): Promise<void> {
-  const id = request.url?.split("/sessions/")[1].split("/cast")[0];
-
-  if (!id) {
-    console.error("Cast Session ID not found");
-    socket.destroy();
-    return;
-  }
-
-  const session = await sessionService.activeSession;
-  if (!session || session.id !== id) {
-    console.error(`Cast Session ${id} not found`);
+  if (!session || session.status !== "live") {
+    console.error(`Cast: session ${session?.id ?? "?"} is not live`);
     socket.destroy();
     return;
   }
@@ -177,9 +167,11 @@ export async function handleCastSession(
     };
 
     try {
-      browser = await puppeteer.connect({
-        browserWSEndpoint: `ws://${env.HOST}:${env.PORT}`,
-      });
+      // Attach straight to this session's Chrome: going through the API's root
+      // socket would always land on the primary browser.
+      const browserWSEndpoint = session.cdpService.getWsEndpoint();
+      if (!browserWSEndpoint) throw new Error(`Browser of session ${session.id} is not running`);
+      browser = await puppeteer.connect({ browserWSEndpoint });
 
       if (!browser) {
         console.error("Failed to connect to browser");

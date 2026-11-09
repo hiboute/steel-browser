@@ -32,6 +32,12 @@ const CreateSession = z.object({
   sessionContext: SessionContextSchema.optional().describe(
     "Session context data to be used in the created session",
   ),
+  cookieSets: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Names of cookie library sets to load into the session (cookies and localStorage), merged in order before sessionContext",
+    ),
   isSelenium: z.boolean().optional().describe("Indicates if Selenium is used in the session"),
   blockAds: z
     .boolean()

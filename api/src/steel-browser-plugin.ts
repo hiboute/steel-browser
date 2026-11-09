@@ -1,4 +1,6 @@
 import fastifyView from "@fastify/view";
+import cookieLibraryPlugin from "./plugins/cookie-library.js";
+import cookieLibraryRoutes from "./modules/cookie-library/cookie-library.routes.js";
 import { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import path, { dirname } from "node:path";
@@ -78,6 +80,7 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   });
   await fastify.register(customBodyParser);
   await fastify.register(browserSessionPlugin);
+  await fastify.register(cookieLibraryPlugin);
 
   // Routes
   const commands = env.ENABLE_COMMANDS_API
@@ -89,6 +92,7 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   await fastify.register(cdpRoutes, { prefix: "/v1" });
   await fastify.register(seleniumRoutes);
   await fastify.register(filesRoutes, { prefix: "/v1" });
+  await fastify.register(cookieLibraryRoutes, { prefix: "/v1" });
   if (commands) {
     await fastify.register(commands.default, { prefix: "/v1" });
   }

@@ -1,9 +1,10 @@
-import { CDPService } from "../../services/cdp/cdp.service.js";
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { getErrors } from "../../utils/errors.js";
 import { CreateSessionRequest, SessionDetails, SessionStreamRequest } from "./sessions.schema.js";
 import { CookieData } from "../../services/context/types.js";
-import { getUrl, getBaseUrl } from "../../utils/url.js";
+import { getUrl, getBaseUrl, getSessionUrl } from "../../utils/url.js";
+import { SessionPoolFullError, type Session } from "../../services/session.service.js";
+import { CookieSetNotFoundError } from "../../services/cookie-library.service.js";
 
 export const handleLaunchBrowserSession = async (
   server: FastifyInstance,
@@ -31,7 +32,24 @@ export const handleLaunchBrowserSession = async (
       userPreferences,
       deviceConfig,
       headless,
+      cookieSets,
     } = request.body;
+
+    let mergedContext = sessionContext as
+      | {
+          cookies?: CookieData[] | undefined;
+          localStorage?: Record<string, Record<string, any>> | undefined;
+        }
+      | undefined;
+    if (cookieSets && cookieSets.length > 0) {
+      const fromLibrary = await server.cookieLibrary.resolve(cookieSets);
+      const own = mergedContext ?? {};
+      mergedContext = {
+        ...own,
+        cookies: [...fromLibrary.cookies, ...(own.cookies ?? [])],
+        localStorage: { ...fromLibrary.localStorage, ...(own.localStorage ?? {}) },
+      };
+    }
 
     return await server.sessionService.startSession({
       sessionId,
@@ -39,10 +57,7 @@ export const handleLaunchBrowserSession = async (
       userDataDir,
       persist,
       userAgent,
-      sessionContext: sessionContext as {
-        cookies?: CookieData[] | undefined;
-        localStorage?: Record<string, Record<string, any>> | undefined;
-      },
+      sessionContext: mergedContext,
       extensions,
       logSinkUrl,
       timezone,
@@ -60,19 +75,36 @@ export const handleLaunchBrowserSession = async (
   } catch (e: unknown) {
     server.log.error({ err: e }, "Failed lauching browser session");
     const error = getErrors(e);
-    return reply.code(500).send({ success: false, message: error });
+    const status =
+      e instanceof SessionPoolFullError ? 429 : e instanceof CookieSetNotFoundError ? 400 : 500;
+    return reply.code(status).send({ success: false, message: error });
   }
 };
 
 export const handleExitBrowserSession = async (
   server: FastifyInstance,
-  request: FastifyRequest,
+  request: FastifyRequest<{ Params: { sessionId?: string }; Body?: { sessionId?: unknown } }>,
   reply: FastifyReply,
 ) => {
+  // POST /v1/sessions/release with { sessionId } releases only that session
+  // (older clients use it as a fallback for the per-id route).
+  const bodyId =
+    request.body && typeof request.body.sessionId === "string" ? request.body.sessionId : undefined;
+  const sessionId = request.params?.sessionId ?? bodyId;
   try {
-    const sessionDetails = await server.sessionService.endSession();
-
-    reply.send({ success: true, ...sessionDetails });
+    if (!sessionId) {
+      // POST /v1/sessions/release: release everything that is live.
+      const released = await server.sessionService.endAllSessions();
+      const last = released[released.length - 1] ?? server.sessionService.activeSession;
+      return reply.send({ success: true, ...last });
+    }
+    if (!server.sessionService.getSession(sessionId)) {
+      const past = server.sessionService.pastSessions.find((s) => s.id === sessionId);
+      if (past) return reply.send({ success: true, ...past });
+      return reply.code(404).send({ success: false, message: `Session ${sessionId} not found` });
+    }
+    const sessionDetails = await server.sessionService.endSession(sessionId);
+    return reply.send({ success: true, ...sessionDetails });
   } catch (e: any) {
     const error = getErrors(e);
     return reply.code(500).send({ success: false, message: error });
@@ -80,13 +112,26 @@ export const handleExitBrowserSession = async (
 };
 
 export const handleGetBrowserContext = async (
-  browserService: CDPService,
-  request: FastifyRequest,
+  server: FastifyInstance,
+  request: FastifyRequest<{ Params: { sessionId: string } }>,
   reply: FastifyReply,
 ) => {
-  const context = await browserService.getBrowserState();
+  const session = server.sessionService.getSession(request.params.sessionId);
+  const context = await (session?.cdpService ?? server.cdpService).getBrowserState();
   return reply.send(context);
 };
+
+/** Strips the server-side fields that must not be serialized. */
+function publicSession(session: Session): SessionDetails {
+  const { completion, complete, proxyServer, cdpService, ...details } = session;
+  return {
+    ...details,
+    duration:
+      session.status === "live"
+        ? new Date().getTime() - new Date(session.createdAt).getTime()
+        : session.duration,
+  } as SessionDetails;
+}
 
 export const handleGetSessionDetails = async (
   server: FastifyInstance,
@@ -94,35 +139,31 @@ export const handleGetSessionDetails = async (
   reply: FastifyReply,
 ) => {
   const sessionId = request.params.sessionId;
-  if (sessionId !== server.sessionService.activeSession.id) {
-    return reply.send({
-      id: sessionId,
-      createdAt: new Date().toISOString(),
-      status: "released",
-      duration: 0,
-      eventCount: 0,
-      timeout: 0,
-      creditsUsed: 0,
-      websocketUrl: getBaseUrl("ws"),
-      debugUrl: getUrl("v1/sessions/debug"),
-      debuggerUrl: getUrl("v1/devtools/inspector.html"),
-      sessionViewerUrl: getBaseUrl(),
-      userAgent: "",
-      isSelenium: false,
-      proxy: "",
-      proxyTxBytes: 0,
-      proxyRxBytes: 0,
-      solveCaptcha: false,
-    } as SessionDetails);
+  const session =
+    server.sessionService.getSession(sessionId) ??
+    server.sessionService.pastSessions.find((s) => s.id === sessionId);
+  if (session) {
+    return reply.send(publicSession(session));
   }
-
-  const session = server.sessionService.activeSession;
-  const duration = new Date().getTime() - new Date(session.createdAt).getTime();
-  console.log("duration", duration);
   return reply.send({
-    ...session,
-    duration,
-  });
+    id: sessionId,
+    createdAt: new Date().toISOString(),
+    status: "released",
+    duration: 0,
+    eventCount: 0,
+    timeout: 0,
+    creditsUsed: 0,
+    websocketUrl: getBaseUrl("ws"),
+    debugUrl: getUrl("v1/sessions/debug"),
+    debuggerUrl: getUrl("v1/devtools/inspector.html"),
+    sessionViewerUrl: getBaseUrl(),
+    userAgent: "",
+    isSelenium: false,
+    proxy: "",
+    proxyTxBytes: 0,
+    proxyRxBytes: 0,
+    solveCaptcha: false,
+  } as SessionDetails);
 };
 
 export const handleGetSessions = async (
@@ -130,13 +171,12 @@ export const handleGetSessions = async (
   request: FastifyRequest,
   reply: FastifyReply,
 ) => {
-  const currentSession = {
-    ...server.sessionService.activeSession,
-    duration:
-      new Date().getTime() - new Date(server.sessionService.activeSession.createdAt).getTime(),
-  };
-  const pastSessions = server.sessionService.pastSessions;
-  return reply.send({ sessions: [currentSession, ...pastSessions] });
+  // Live sessions first, newest first; then the idle browser if nothing is live;
+  // then released ones, newest first.
+  const live = server.sessionService.listSessions().reverse();
+  const current = live.length > 0 ? live : [server.sessionService.activeSession];
+  const past = [...server.sessionService.pastSessions].reverse();
+  return reply.send({ sessions: [...current, ...past].map(publicSession) });
 };
 
 export const handleGetSessionStream = async (
@@ -145,11 +185,21 @@ export const handleGetSessionStream = async (
   reply: FastifyReply,
 ) => {
   const { showControls, theme, interactive, pageId, pageIndex } = request.query;
+  const sessionId = (request.params as { sessionId?: string } | undefined)?.sessionId;
+  const session = sessionId
+    ? server.sessionService.getSession(sessionId)
+    : server.sessionService.activeSession;
+  if (!session) {
+    return reply.code(404).send({ success: false, message: `Session ${sessionId} not found` });
+  }
 
   const singlePageMode = !!(pageId || pageIndex);
 
   // Construct WebSocket URL with page parameters if present
-  let wsUrl = getUrl("v1/sessions/cast", "ws");
+  let wsUrl =
+    session.status === "live"
+      ? getSessionUrl(session.id, "cast", "ws")
+      : getUrl("v1/sessions/cast", "ws");
   if (pageId) {
     wsUrl += `?pageId=${encodeURIComponent(pageId)}`;
   } else if (pageIndex) {
@@ -161,7 +211,7 @@ export const handleGetSessionStream = async (
     showControls,
     theme,
     interactive,
-    dimensions: server.sessionService.activeSession.dimensions,
+    dimensions: session.dimensions,
     singlePageMode,
   });
 };
@@ -171,8 +221,11 @@ export const handleGetSessionLiveDetails = async (
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply,
 ) => {
+  const session =
+    server.sessionService.getSession(request.params.id) ?? server.sessionService.activeSession;
+  const cdpService = session.cdpService ?? server.cdpService;
   try {
-    const pages = await server.cdpService.getAllPages();
+    const pages = await cdpService.getAllPages();
 
     const pagesInfo = await Promise.all(
       pages.map(async (page) => {
@@ -213,13 +266,13 @@ export const handleGetSessionLiveDetails = async (
 
     const validPagesInfo = pagesInfo.filter((page) => page !== null);
 
-    const browserVersion = await server.cdpService.getBrowserState();
+    const browserVersion = await cdpService.getBrowserState();
 
     const browserState = {
-      status: server.sessionService.activeSession.status,
-      userAgent: server.sessionService.activeSession.userAgent,
+      status: session.status,
+      userAgent: session.userAgent,
       browserVersion,
-      initialDimensions: server.sessionService.activeSession.dimensions || {
+      initialDimensions: session.dimensions || {
         width: 1920,
         height: 1080,
       },
@@ -229,9 +282,9 @@ export const handleGetSessionLiveDetails = async (
     return reply.send({
       pages: validPagesInfo,
       browserState,
-      websocketUrl: server.sessionService.activeSession.websocketUrl,
-      sessionViewerUrl: server.sessionService.activeSession.sessionViewerUrl,
-      sessionViewerFullscreenUrl: `${server.sessionService.activeSession.sessionViewerUrl}?showControls=false`,
+      websocketUrl: session.websocketUrl,
+      sessionViewerUrl: session.sessionViewerUrl,
+      sessionViewerFullscreenUrl: `${session.sessionViewerUrl}?showControls=false`,
     });
   } catch (error) {
     console.error("Error getting session state:", error);

@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
-import { createSession } from "../api";
+import { createSession, type SessionDetails } from "../api";
+import { CookieSetPicker } from "./cookie-library";
 import { KeyChip } from "./key-chip";
 import { Segmented } from "./segmented";
 
@@ -10,11 +11,12 @@ const devices = [
   { value: "mobile", label: "Mobile" },
 ] as const;
 
-export function NewSessionButton({ onStarted }: { onStarted: () => void }) {
+export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDetails) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [device, setDevice] = useState<Device>("desktop");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [opened, setOpened] = useState(0);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -31,17 +33,18 @@ export function NewSessionButton({ onStarted }: { onStarted: () => void }) {
     setPending(true);
     setError(null);
     try {
-      await createSession({
+      const session = await createSession({
         deviceConfig: { device },
         dimensions: width && height ? { width: Number(width), height: Number(height) } : undefined,
         userAgent: text("userAgent"),
         proxyUrl: text("proxyUrl"),
         blockAds: data.get("blockAds") === "on",
+        cookieSets: data.getAll("cookieSets").map(String),
       });
       dialog.current?.close();
       form.reset();
       setDevice("desktop");
-      onStarted();
+      onStarted(session);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -58,7 +61,10 @@ export function NewSessionButton({ onStarted }: { onStarted: () => void }) {
         data-shortcut="s"
         aria-keyshortcuts="S"
         aria-haspopup="dialog"
-        onClick={() => dialog.current?.showModal()}
+        onClick={() => {
+          setOpened((n) => n + 1);
+          dialog.current?.showModal();
+        }}
       >
         Start session
         <KeyChip k="S" />
@@ -76,7 +82,7 @@ export function NewSessionButton({ onStarted }: { onStarted: () => void }) {
               Start a new session
             </h2>
             <p id="new-session-description" className="dialog-description">
-              Configure options and start a new session. The current browser closes.
+              Configure options and start a new session in a free browser.
             </p>
           </div>
           <div className="dialog-body">
@@ -145,6 +151,7 @@ export function NewSessionButton({ onStarted }: { onStarted: () => void }) {
                 defaultChecked
               />
             </label>
+            <CookieSetPicker key={opened} />
             {error && (
               <p className="dialog-error" role="alert">
                 {error}

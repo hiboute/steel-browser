@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { apiUrl, type SessionDetails } from "../api";
+import { apiUrl, isPrimarySession, type SessionDetails } from "../api";
 import { useColorScheme, usePageId } from "../hooks";
 import { Details } from "./details";
 import { Notice } from "./notice";
@@ -92,8 +92,8 @@ function LiveFrame({ url }: { url: string }) {
   );
 }
 
-function DevTools() {
-  const pageId = usePageId();
+function DevTools({ session }: { session: SessionDetails }) {
+  const pageId = usePageId(session);
   const query = pageId ? `?pageId=${encodeURIComponent(pageId)}` : "";
 
   return (
@@ -114,7 +114,7 @@ export function Stage({
   session: SessionDetails;
   devtoolsOpen: boolean;
 }) {
-  const docked = devtoolsOpen && Boolean(session.debugUrl);
+  const docked = devtoolsOpen && Boolean(session.debugUrl) && isPrimarySession(session);
 
   return (
     <section className="stage" data-devtools={docked ? "open" : "closed"} aria-label="Live view">
@@ -129,7 +129,7 @@ export function Stage({
           </Notice>
         </div>
       )}
-      {docked && <DevTools />}
+      {docked && <DevTools session={session} />}
       <div className="stage-details">
         <Details session={session} />
       </div>

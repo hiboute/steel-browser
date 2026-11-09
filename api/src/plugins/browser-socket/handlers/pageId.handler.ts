@@ -12,7 +12,7 @@ function handlePageIdWebSocket(context: WebSocketHandlerContext, ws: WebSocket) 
     }
   };
 
-  fastify.cdpService.on("pageId", messageHandler);
+  context.cdpService.on("pageId", messageHandler);
 
   ws.on("error", (err) => {
     fastify.log.error({ err }, "PageId WebSocket error");
@@ -20,7 +20,7 @@ function handlePageIdWebSocket(context: WebSocketHandlerContext, ws: WebSocket) 
 
   ws.on("close", () => {
     fastify.log.info("PageId WebSocket connection closed");
-    fastify.cdpService.removeListener("pageId", messageHandler);
+    context.cdpService.removeListener("pageId", messageHandler);
   });
 }
 

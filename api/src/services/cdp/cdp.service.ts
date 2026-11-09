@@ -126,16 +126,26 @@ export class CDPService extends EventEmitter {
     | ((req: IncomingMessage, socket: Duplex, head: Buffer) => Promise<void>)
     | null = null;
   private disconnectHandler: () => Promise<void> = () => this.endSession();
+  public readonly cdpPort: number;
+  /**
+   * The primary browser (pool slot 0) keeps the stock behaviour: an idle browser
+   * is always running and the shared files directory is cleaned on launch and
+   * shutdown. Secondary slots only run Chrome while a session owns them and
+   * leave the shared files directory alone.
+   */
+  public readonly primary: boolean;
 
   constructor(
-    config: { keepAlive?: boolean },
+    config: { keepAlive?: boolean; cdpPort?: number; primary?: boolean },
     logger: FastifyBaseLogger,
     storage?: any,
     enableConsoleLogging?: boolean,
   ) {
     super();
     this.logger = logger.child({ component: "CDPService" });
-    const { keepAlive = true } = config;
+    const { keepAlive = true, cdpPort = 9222, primary = true } = config;
+    this.cdpPort = cdpPort;
+    this.primary = primary;
 
     this.keepAlive = keepAlive;
     this.browserInstance = null;
@@ -205,6 +215,10 @@ export class CDPService extends EventEmitter {
     return this.instrumentationLogger;
   }
 
+  public getWsEndpoint(): string | null {
+    return this.wsEndpoint;
+  }
+
   public getLogger(name: string) {
     return this.logger.child({ component: name });
   }
@@ -245,7 +259,8 @@ export class CDPService extends EventEmitter {
 
   private removeAllHandlers() {
     this.browserInstance?.removeAllListeners();
-    this.removeAllListeners();
+    // Keep this emitter's own listeners: they are the UI's log/pageId sockets,
+    // which must keep receiving events after the browser is relaunched.
   }
 
   public isRunning(): boolean {
@@ -610,7 +625,7 @@ export class CDPService extends EventEmitter {
 
       this.logger.info("[CDPService] Cleaning up files during shutdown");
       try {
-        await FileService.getInstance().cleanupFiles();
+        if (this.primary) await FileService.getInstance().cleanupFiles();
         this.logger.info("[CDPService] Files cleaned successfully");
       } catch (error) {
         this.logger.error(`[CDPService] Error cleaning files during shutdown: ${error}`);
@@ -630,7 +645,7 @@ export class CDPService extends EventEmitter {
       await this.shutdownHook();
 
       try {
-        await FileService.getInstance().cleanupFiles();
+        if (this.primary) await FileService.getInstance().cleanupFiles();
       } catch (cleanupError) {
         this.logger.error(
           `[CDPService] Error cleaning files during error recovery: ${cleanupError}`,
@@ -790,7 +805,7 @@ export class CDPService extends EventEmitter {
         await executeOptional(
           this.logger,
           async () => {
-            await FileService.getInstance().cleanupFiles();
+            if (this.primary) await FileService.getInstance().cleanupFiles();
             this.logger.info("[CDPService] Files cleaned successfully before launch");
           },
           (error) =>
@@ -1025,7 +1040,7 @@ export class CDPService extends EventEmitter {
         const dynamicArgs = [
           this.launchConfig.dimensions ? "" : "--start-maximized",
           `--remote-debugging-address=${env.HOST}`,
-          "--remote-debugging-port=9222",
+          `--remote-debugging-port=${this.cdpPort}`,
           `--window-size=${this.launchConfig.dimensions?.width ?? 1920},${
             this.launchConfig.dimensions?.height ?? 1080
           }`,
@@ -1537,8 +1552,10 @@ export class CDPService extends EventEmitter {
       await this.pluginManager.onAfterSessionEnd(sessionConfig);
     }
 
-    // Relaunch the idle browser
-    await this.launch(this.defaultLaunchConfig);
+    // Relaunch the idle browser (secondary pool slots stay down until reused)
+    if (this.primary) {
+      await this.launch(this.defaultLaunchConfig);
+    }
   }
 
   private async onDisconnect(): Promise<void> {

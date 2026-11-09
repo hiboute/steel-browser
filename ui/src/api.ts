@@ -29,12 +29,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function getActiveSession(signal: AbortSignal): Promise<SessionDetails | null> {
+/** Live sessions first (newest first), then the idle browser or released ones. */
+export async function getSessions(signal: AbortSignal): Promise<SessionDetails[]> {
   const { sessions } = await request<MultipleSessions>("/v1/sessions", { signal });
-  return sessions[0] ?? null;
+  return sessions;
 }
 
-export function createSession(body: CreateSession): Promise<SessionDetails> {
+/** Socket path for one session's stream (logs, pageId), or the unscoped one when idle. */
+export function sessionSocketPath(session: SessionDetails | null | undefined, kind: string) {
+  return session && session.status === "live"
+    ? `/v1/sessions/${encodeURIComponent(session.id)}/${kind}`
+    : `/v1/sessions/${kind}`;
+}
+
+/** Only the primary browser (root CDP socket) is reachable by the DevTools proxy. */
+export function isPrimarySession(session: SessionDetails) {
+  return !/\/v1\/sessions\/[^/]+\/cdp/.test(session.websocketUrl ?? "");
+}
+
+export function createSession(
+  body: CreateSession & { cookieSets?: string[] },
+): Promise<SessionDetails> {
   return request<SessionDetails>("/v1/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -45,5 +60,40 @@ export function createSession(body: CreateSession): Promise<SessionDetails> {
 export function releaseSession(id: string): Promise<ReleaseSession> {
   return request<ReleaseSession>(`/v1/sessions/${encodeURIComponent(id)}/release`, {
     method: "POST",
+  });
+}
+
+export type CookieSetSummary = {
+  name: string;
+  description?: string;
+  domains: string[];
+  cookieCount: number;
+  originCount: number;
+  expiresAt: string | null;
+  sourceSessionId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function listCookieSets(signal?: AbortSignal) {
+  return request<{ sets: CookieSetSummary[]; encrypted: boolean }>("/v1/cookie-library", {
+    signal,
+  });
+}
+
+export function captureCookieSet(
+  name: string,
+  body: { sessionId: string; domains?: string[]; description?: string },
+) {
+  return request<CookieSetSummary>(`/v1/cookie-library/${encodeURIComponent(name)}/capture`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteCookieSet(name: string) {
+  return request<{ success: boolean }>(`/v1/cookie-library/${encodeURIComponent(name)}`, {
+    method: "DELETE",
   });
 }

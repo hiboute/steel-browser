@@ -3,10 +3,28 @@ import { Rail, type ApiStatus } from "./components/rail";
 import { SessionConsole } from "./components/session-console";
 import { Stage } from "./components/stage";
 import { TopBar } from "./components/top-bar";
-import { useActiveSession, useShortcutKeys, useStoredToggle } from "./hooks";
+import type { SessionDetails } from "./api";
+import { useSessions, useShortcutKeys, useStoredToggle, useUrlParam } from "./hooks";
+import { CookieLibraryPage } from "./components/cookie-library";
 
 export function App() {
-  const { session, error, refresh } = useActiveSession();
+  const { sessions, error, refresh } = useSessions();
+  const [selectedId, selectSession] = useUrlParam("session");
+  const [view, setView] = useUrlParam("view");
+  const select = (id: string | null) => {
+    if (view) setView(null);
+    selectSession(id);
+  };
+  // The picked session while it is listed; otherwise the newest live one.
+  const session: SessionDetails | null | undefined =
+    sessions === undefined
+      ? undefined
+      : sessions.find((s) => s.id === selectedId) ?? sessions[0] ?? null;
+  const onSessionChange = (started?: SessionDetails) => {
+    if (started) select(started.id);
+    else if (session && selectedId === session.id) select(null);
+    refresh();
+  };
   const [railOpen, toggleRail] = useStoredToggle("steel-browser:rail", true);
   const [consoleOpen, toggleConsole] = useStoredToggle("steel-browser:console", true);
   const [devtoolsOpen, toggleDevtools] = useStoredToggle("steel-browser:devtools", false);
@@ -22,7 +40,17 @@ export function App() {
 
   return (
     <div className="shell" data-rail={railOpen ? "open" : "closed"}>
-      {railOpen && <Rail status={status} onCollapse={toggleRail} />}
+      {railOpen && (
+        <Rail
+          status={status}
+          onCollapse={toggleRail}
+          sessions={sessions ?? []}
+          selectedId={session?.id ?? null}
+          onSelect={select}
+          view={view === "cookies" ? "cookies" : "sessions"}
+          onView={(next) => setView(next === "cookies" ? "cookies" : null)}
+        />
+      )}
       <div className="body">
         <main className="panel">
           <TopBar
@@ -33,9 +61,11 @@ export function App() {
             onToggleConsole={toggleConsole}
             devtoolsOpen={devtoolsOpen}
             onToggleDevtools={toggleDevtools}
-            onSessionChange={refresh}
+            onSessionChange={onSessionChange}
           />
-          {session ? (
+          {view === "cookies" ? (
+            <CookieLibraryPage />
+          ) : session ? (
             <div className="workspace">
               <SessionConsole key={session.id} session={session} hidden={!consoleOpen} />
               <Stage session={session} devtoolsOpen={devtoolsOpen} />

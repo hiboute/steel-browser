@@ -4,6 +4,7 @@ import { CreateSessionRequest, SessionDetails, SessionStreamRequest } from "./se
 import { CookieData } from "../../services/context/types.js";
 import { getUrl, getBaseUrl, getSessionUrl } from "../../utils/url.js";
 import { SessionPoolFullError, type Session } from "../../services/session.service.js";
+import { CookieSetNotFoundError } from "../../services/cookie-library.service.js";
 
 export const handleLaunchBrowserSession = async (
   server: FastifyInstance,
@@ -31,7 +32,24 @@ export const handleLaunchBrowserSession = async (
       userPreferences,
       deviceConfig,
       headless,
+      cookieSets,
     } = request.body;
+
+    let mergedContext = sessionContext as
+      | {
+          cookies?: CookieData[] | undefined;
+          localStorage?: Record<string, Record<string, any>> | undefined;
+        }
+      | undefined;
+    if (cookieSets && cookieSets.length > 0) {
+      const fromLibrary = await server.cookieLibrary.resolve(cookieSets);
+      const own = mergedContext ?? {};
+      mergedContext = {
+        ...own,
+        cookies: [...fromLibrary.cookies, ...(own.cookies ?? [])],
+        localStorage: { ...fromLibrary.localStorage, ...(own.localStorage ?? {}) },
+      };
+    }
 
     return await server.sessionService.startSession({
       sessionId,
@@ -39,10 +57,7 @@ export const handleLaunchBrowserSession = async (
       userDataDir,
       persist,
       userAgent,
-      sessionContext: sessionContext as {
-        cookies?: CookieData[] | undefined;
-        localStorage?: Record<string, Record<string, any>> | undefined;
-      },
+      sessionContext: mergedContext,
       extensions,
       logSinkUrl,
       timezone,
@@ -60,7 +75,8 @@ export const handleLaunchBrowserSession = async (
   } catch (e: unknown) {
     server.log.error({ err: e }, "Failed lauching browser session");
     const error = getErrors(e);
-    const status = e instanceof SessionPoolFullError ? 429 : 500;
+    const status =
+      e instanceof SessionPoolFullError ? 429 : e instanceof CookieSetNotFoundError ? 400 : 500;
     return reply.code(status).send({ success: false, message: error });
   }
 };

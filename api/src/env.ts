@@ -88,6 +88,8 @@ const envSchema = z.object({
     .prefault("false"),
   MAX_SESSIONS: z.coerce.number().int().min(1).prefault(1),
   CDP_PORT_BASE: z.coerce.number().prefault(9222),
+  COOKIE_LIBRARY_DIR: z.string().optional(),
+  COOKIE_LIBRARY_KEY: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

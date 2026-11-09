@@ -1,5 +1,5 @@
 import { FastifyBaseLogger } from "fastify";
-import { mkdir } from "fs/promises";
+import { mkdir, rm } from "fs/promises";
 import os from "os";
 import path, { dirname } from "path";
 import { fileURLToPath } from "url";
@@ -82,6 +82,8 @@ export class SessionService {
   private sessions = new Map<string, Session>();
   /** Placeholder describing the idle primary browser when no session is live. */
   private idleSession: Session;
+  /** Throwaway profile directories by session id, deleted on release. */
+  private ephemeralProfiles = new Map<string, string>();
 
   constructor(config: {
     browserPool: BrowserPool;
@@ -155,19 +157,32 @@ export class SessionService {
     return this.browserPool.maxSessions;
   }
 
-  private userDataDirFor(slot: PoolSlot, persist: boolean | undefined, custom?: string): string {
-    // Each Chrome needs its own profile directory: two browsers on one profile
-    // fight over its SingletonLock and the second one fails to start.
-    const suffix = slot.index === 0 ? "" : `-${slot.index}`;
+  /**
+   * Each Chrome needs its own profile directory: two browsers on one profile
+   * fight over its SingletonLock. A non-persistent session also gets a fresh
+   * profile, removed on release, so cookies, storage and tabs never carry over
+   * to the next session on the same slot.
+   */
+  private userDataDirFor(
+    slot: PoolSlot,
+    sessionId: string,
+    persist: boolean | undefined,
+    custom?: string,
+  ): { dir: string; ephemeral: boolean } {
     if (custom || persist === true) {
-      return path.join(
-        dirname(fileURLToPath(import.meta.url)),
-        "..",
-        "..",
-        `user-data-dir${suffix}`,
-      );
+      const suffix = slot.index === 0 ? "" : `-${slot.index}`;
+      return {
+        dir: path.join(
+          dirname(fileURLToPath(import.meta.url)),
+          "..",
+          "..",
+          `user-data-dir${suffix}`,
+        ),
+        ephemeral: false,
+      };
     }
-    return (env.CHROME_USER_DATA_DIR || path.join(os.tmpdir(), "steel-chrome")) + suffix;
+    const base = env.CHROME_USER_DATA_DIR || path.join(os.tmpdir(), "steel-chrome");
+    return { dir: `${base}-session-${sessionId}`, ephemeral: true };
   }
 
   public async startSession(options: {
@@ -280,7 +295,9 @@ export class SessionService {
       };
       this.sessions.set(sessionId, session);
 
-      const userDataDir = this.userDataDirFor(slot, options.persist, options.userDataDir);
+      const profile = this.userDataDirFor(slot, sessionId, options.persist, options.userDataDir);
+      const userDataDir = profile.dir;
+      if (profile.ephemeral) this.ephemeralProfiles.set(sessionId, userDataDir);
       await mkdir(userDataDir, { recursive: true });
 
       const defaultUserPreferences = {
@@ -374,6 +391,7 @@ export class SessionService {
 
       return session;
     } catch (error) {
+      void this.removeProfile(sessionId);
       const session = this.sessions.get(sessionId);
       this.sessions.delete(sessionId);
       this.browserPool.release(sessionId);
@@ -420,6 +438,7 @@ export class SessionService {
         session.proxyRxBytes = proxyServer.rxBytes;
       }
 
+      await this.removeProfile(session.id);
       if (this.sessions.size === 0) {
         this.idleSession = this.makeIdleSession();
       }
@@ -428,6 +447,15 @@ export class SessionService {
     }
 
     return session;
+  }
+
+  private async removeProfile(sessionId: string) {
+    const dir = this.ephemeralProfiles.get(sessionId);
+    if (!dir) return;
+    this.ephemeralProfiles.delete(sessionId);
+    await rm(dir, { recursive: true, force: true }).catch((err) =>
+      this.logger.warn({ err }, `[SessionService] Could not remove profile ${dir}`),
+    );
   }
 
   /** Releases every live session. */

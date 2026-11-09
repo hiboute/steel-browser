@@ -66,6 +66,7 @@ const browserInstancePlugin: FastifyPluginAsync = async (fastify, _options) => {
     fastify.log,
     (index) => storages[index],
     enableConsoleLogging,
+    env.CDP_RESERVED_PORTS,
   );
   const cdpService = browserPool.primary.cdpService;
 

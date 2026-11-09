@@ -8,7 +8,8 @@ and its own profile directory.
 | Env | Default | Meaning |
 | --- | --- | --- |
 | `MAX_SESSIONS` | `1` | Browsers in the pool, so sessions that can be live at once |
-| `CDP_PORT_BASE` | `9222` | CDP port of slot 0; slot `i` uses `CDP_PORT_BASE + i` |
+| `CDP_PORT_BASE` | `9222` | CDP port of slot 0; later slots take the next free ports |
+| `CDP_RESERVED_PORTS` | `9223` | Comma-separated ports never given to a browser (9223 is the bundled nginx CDP proxy) |
 
 Give the container enough shared memory (`shm_size`) and RAM for that many
 Chromes (roughly 300 MB to 1 GB each, depending on the pages).

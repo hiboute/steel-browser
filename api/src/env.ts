@@ -88,6 +88,16 @@ const envSchema = z.object({
     .prefault("false"),
   MAX_SESSIONS: z.coerce.number().int().min(1).prefault(1),
   CDP_PORT_BASE: z.coerce.number().prefault(9222),
+  /** Ports the pool never gives a browser: 9223 is the bundled nginx CDP proxy. */
+  CDP_RESERVED_PORTS: z
+    .string()
+    .optional()
+    .transform((val) =>
+      (val ?? "9223")
+        .split(",")
+        .map((p) => Number(p.trim()))
+        .filter((p) => Number.isInteger(p) && p > 0),
+    ),
   COOKIE_LIBRARY_DIR: z.string().optional(),
   COOKIE_LIBRARY_KEY: z.string().optional(),
 });

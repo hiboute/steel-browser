@@ -26,23 +26,37 @@ export class BrowserPool {
     logger: FastifyBaseLogger,
     storageFactory: (index: number) => any,
     enableConsoleLogging: boolean,
+    reservedPorts: number[] = [],
   ) {
     const size = Math.max(1, Math.floor(maxSessions));
     this.logger = logger.child({ component: "BrowserPool" });
-    this.slots = Array.from({ length: size }, (_, i) => ({
+    const ports = BrowserPool.allocatePorts(size, cdpPortBase, reservedPorts);
+    this.slots = ports.map((cdpPort, i) => ({
       index: i,
-      cdpPort: cdpPortBase + i,
+      cdpPort,
       cdpService: new CDPService(
-        { cdpPort: cdpPortBase + i, primary: i === 0 },
+        { cdpPort, primary: i === 0 },
         logger.child({ slot: i }),
         storageFactory(i),
         enableConsoleLogging,
       ),
       sessionId: null,
     }));
-    this.logger.info(
-      `[BrowserPool] ${size} slot(s), CDP ports ${cdpPortBase}-${cdpPortBase + size - 1}`,
-    );
+    this.logger.info(`[BrowserPool] ${size} slot(s), CDP ports ${ports.join(", ")}`);
+  }
+
+  /**
+   * Slot 0 always gets the base port (the primary browser); later slots take
+   * the next ports that are not reserved (9223 is the bundled nginx proxy).
+   */
+  static allocatePorts(size: number, base: number, reserved: number[] = []): number[] {
+    const ports = [base];
+    let next = base + 1;
+    while (ports.length < size) {
+      if (!reserved.includes(next)) ports.push(next);
+      next++;
+    }
+    return ports;
   }
 
   /** Takes the first free slot (the primary first), or null when all are busy. */

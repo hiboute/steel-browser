@@ -1,8 +1,9 @@
-import type { SessionDetails } from "../api";
+import { isPrimarySession, type SessionDetails } from "../api";
 import { CopyButton } from "./copy-button";
 import { ChevronRightIcon, ConsoleIcon, DevToolsIcon, RailIcon } from "./icons";
 import { NewSessionButton } from "./new-session";
 import { ReleaseButton } from "./release-button";
+import { SaveCookiesButton } from "./cookie-library";
 
 export function TopBar({
   session,
@@ -21,7 +22,7 @@ export function TopBar({
   onToggleConsole: () => void;
   devtoolsOpen: boolean;
   onToggleDevtools: () => void;
-  onSessionChange: () => void;
+  onSessionChange: (session?: SessionDetails) => void;
 }) {
   const consoleLabel = consoleOpen ? "Hide logs" : "Show logs";
   const devtoolsLabel = devtoolsOpen ? "Hide DevTools" : "Show DevTools";
@@ -52,7 +53,7 @@ export function TopBar({
           <ConsoleIcon />
         </button>
       )}
-      {session?.debugUrl && (
+      {session?.debugUrl && isPrimarySession(session) && (
         <button
           type="button"
           className="bar-button devtools-toggle"
@@ -78,8 +79,9 @@ export function TopBar({
       </nav>
       {session && (
         <div className="top-bar-actions">
+          {session.status === "live" && <SaveCookiesButton session={session} />}
           {session.status === "live" && (
-            <ReleaseButton sessionId={session.id} onReleased={onSessionChange} />
+            <ReleaseButton sessionId={session.id} onReleased={() => onSessionChange()} />
           )}
           <NewSessionButton onStarted={onSessionChange} />
         </div>

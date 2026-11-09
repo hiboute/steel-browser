@@ -146,6 +146,31 @@ p {
   white-space: nowrap;
 }
 
+.rail-item-meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--sand-10);
+  font-variant-numeric: tabular-nums;
+}
+
+.rail-session .rail-item-label {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.session-dot {
+  width: 8px;
+  height: 8px;
+  margin: 0 4px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--sand-8);
+}
+
+.session-dot[data-status="live"] {
+  background: var(--green-9, #30a46c);
+}
+
 .rail-item-trail {
   width: 14px;
   height: 14px;
@@ -1181,4 +1206,65 @@ p {
     animation: none !important;
     transition: none !important;
   }
+}
+
+.library {
+  flex: 1;
+  overflow: auto;
+  padding: 24px;
+}
+
+.library-head {
+  margin-bottom: 16px;
+}
+
+.library-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--sand-12);
+}
+
+.library-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.library-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--sand-10);
+  padding: 8px;
+  border-bottom: 1px solid var(--sand-6, #e0dfdb);
+}
+
+.library-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--sand-4, #efeeec);
+  vertical-align: top;
+  color: var(--sand-12);
+}
+
+.library-domains {
+  max-width: 320px;
+  overflow-wrap: anywhere;
+}
+
+.cookie-picker {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.cookie-picker legend {
+  padding: 0;
+  margin-bottom: 6px;
+}
+
+.cookie-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
 }

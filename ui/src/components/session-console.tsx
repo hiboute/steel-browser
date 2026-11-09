@@ -34,7 +34,7 @@ export function SessionConsole({ session, hidden }: { session: SessionDetails; h
   const [query, setQuery] = useState("");
   const search = useDeferredValue(query.trim().toLowerCase());
   const input = useRef<HTMLInputElement>(null);
-  const logs = useLogs();
+  const logs = useLogs(session);
 
   const visible = useMemo(
     () => logs.filter((entry) => matches(entry, filter, search)),

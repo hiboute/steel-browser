@@ -30,3 +30,32 @@ Chromes (roughly 300 MB to 1 GB each, depending on the pages).
   the unscoped paths with `?sessionId=<id>`. The live view page is
   `/v1/sessions/<id>/debug`.
 - A session whose Chrome dies (crash, kill) is released automatically.
+
+## Cookie library
+
+Named, reusable logins: the cookies and localStorage of a session, saved under
+a name and loaded into any new session.
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `COOKIE_LIBRARY_DIR` | `./cookie-library` | One JSON file per set; mount a volume here |
+| `COOKIE_LIBRARY_KEY` | unset | When set, files are AES-256-GCM encrypted with a key derived from it |
+
+- `POST /v1/cookie-library/<name>/capture` with `{ "sessionId", "domains"?: [...] }`
+  saves a live session's cookies and localStorage (only those sites when
+  `domains` is given, subdomains included).
+- `PUT /v1/cookie-library/<name>` with `{ "cookies": [...], "localStorage"? }` imports a set.
+- `GET /v1/cookie-library` lists sets without values; `GET /v1/cookie-library/<name>`
+  returns one with values; `DELETE /v1/cookie-library/<name>` removes it.
+- `POST /v1/sessions` with `"cookieSets": ["a", "b"]` starts the session with
+  those sets merged in order (later wins), then `sessionContext` on top.
+- The UI has a Cookie library page, a "Save cookies" button on live sessions,
+  and a "Start logged in with" picker in the new-session dialog.
+
+The library holds live credentials: keep the API behind authentication.
+
+## Profiles
+
+A session without `persist` runs on a fresh profile directory that is deleted
+on release, so nothing (cookies, storage, tabs) carries over to the next
+session on the same browser. `persist: true` keeps one profile per slot.

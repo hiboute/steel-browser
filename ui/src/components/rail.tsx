@@ -1,3 +1,4 @@
+import type { SessionDetails } from "../api";
 import type { Tone } from "../format";
 import {
   ArrowUpRightIcon,
@@ -19,11 +20,73 @@ const problems: Partial<Record<ApiStatus, { label: string; tone: Tone }>> = {
 const links = [
   { href: "https://docs.steel.dev", label: "Docs", icon: BookIcon },
   { href: "https://discord.gg/steel-dev", label: "Discord", icon: ChatIcon },
-  { href: "https://github.com/steel-dev/steel-browser", label: "GitHub", icon: BranchIcon },
+  { href: "https://github.com/hiboute/steel-browser", label: "GitHub", icon: BranchIcon },
 ];
 
-export function Rail({ status, onCollapse }: { status: ApiStatus; onCollapse: () => void }) {
+function shortId(id: string) {
+  return id.slice(0, 8);
+}
+
+function age(createdAt: string) {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(createdAt).getTime()) / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours} h` : `${Math.floor(hours / 24)} d`;
+}
+
+function SessionItem({
+  session,
+  current,
+  onSelect,
+}: {
+  session: SessionDetails;
+  current: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const href = `?session=${encodeURIComponent(session.id)}`;
+  return (
+    <a
+      className="rail-item rail-session"
+      href={href}
+      aria-current={current ? "page" : undefined}
+      title={session.id}
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+        event.preventDefault();
+        onSelect(session.id);
+      }}
+    >
+      <span className="session-dot" data-status={session.status} />
+      <span className="rail-item-label">
+        {session.status === "idle" ? "Idle browser" : shortId(session.id)}
+      </span>
+      <span className="rail-item-meta">
+        {session.status === "live" ? age(session.createdAt) : session.status}
+      </span>
+    </a>
+  );
+}
+
+export function Rail({
+  status,
+  onCollapse,
+  sessions,
+  selectedId,
+  onSelect,
+  view,
+  onView,
+}: {
+  status: ApiStatus;
+  onCollapse: () => void;
+  sessions: SessionDetails[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  view: "sessions" | "cookies";
+  onView: (view: "sessions" | "cookies") => void;
+}) {
   const problem = problems[status];
+  const live = sessions.filter((s) => s.status !== "released");
+  const released = sessions.filter((s) => s.status === "released").slice(0, 5);
 
   return (
     <aside className="rail" aria-label="Sidebar">
@@ -49,12 +112,62 @@ export function Rail({ status, onCollapse }: { status: ApiStatus; onCollapse: ()
         <div className="rail-group">
           <p className="rail-group-title">Browsers</p>
           <div className="rail-items">
-            <a className="rail-item" href={import.meta.env.BASE_URL} aria-current="page">
+            <a
+              className="rail-item"
+              href={import.meta.env.BASE_URL}
+              aria-current={view === "sessions" ? "page" : undefined}
+              onClick={(event) => {
+                event.preventDefault();
+                onView("sessions");
+              }}
+            >
               <WindowIcon />
               <span className="rail-item-label">Sessions</span>
             </a>
+            <a
+              className="rail-item"
+              href="?view=cookies"
+              aria-current={view === "cookies" ? "page" : undefined}
+              onClick={(event) => {
+                event.preventDefault();
+                onView("cookies");
+              }}
+            >
+              <BookIcon />
+              <span className="rail-item-label">Cookie library</span>
+            </a>
           </div>
         </div>
+        <div className="rail-group">
+          <p className="rail-group-title">
+            Live {live.some((s) => s.status === "live") && <span>({live.length})</span>}
+          </p>
+          <div className="rail-items">
+            {live.map((session) => (
+              <SessionItem
+                key={session.id}
+                session={session}
+                current={view === "sessions" && session.id === selectedId}
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
+        </div>
+        {released.length > 0 && (
+          <div className="rail-group">
+            <p className="rail-group-title">Released</p>
+            <div className="rail-items">
+              {released.map((session) => (
+                <SessionItem
+                  key={session.id}
+                  session={session}
+                  current={session.id === selectedId}
+                  onSelect={onSelect}
+                />
+              ))}
+            </div>
+          </div>
+        )}
         <div className="rail-group">
           <p className="rail-group-title">External</p>
           <div className="rail-items">

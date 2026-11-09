@@ -6,7 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { getActiveSession, wsUrl, type SessionDetails } from "./api";
+import { getSessions, sessionSocketPath, wsUrl, type SessionDetails } from "./api";
 import { describeEvent, isBrowserEvent, type BrowserEvent, type EventSummary } from "./format";
 
 export type LogEntry = {
@@ -16,12 +16,12 @@ export type LogEntry = {
 };
 
 type SessionState = {
-  session: SessionDetails | null | undefined;
+  sessions: SessionDetails[] | undefined;
   error: string | null;
 };
 
-export function useActiveSession(intervalMs = 1000) {
-  const [state, setState] = useState<SessionState>({ session: undefined, error: null });
+export function useSessions(intervalMs = 1000) {
+  const [state, setState] = useState<SessionState>({ sessions: undefined, error: null });
   const [version, setVersion] = useState(0);
   const refresh = useCallback(() => setVersion((value) => value + 1), []);
 
@@ -32,8 +32,8 @@ export function useActiveSession(intervalMs = 1000) {
     const poll = async () => {
       if (document.visibilityState === "visible") {
         try {
-          const session = await getActiveSession(controller.signal);
-          setState({ session, error: null });
+          const sessions = await getSessions(controller.signal);
+          setState({ sessions, error: null });
         } catch (error) {
           if (controller.signal.aborted) return;
           setState((current) => ({
@@ -95,13 +95,13 @@ export function useSocket(path: string, onMessage: (data: unknown) => void) {
   }, [path]);
 }
 
-export function useLogs(limit = 1000) {
+export function useLogs(session: SessionDetails, limit = 1000) {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const sequence = useRef(0);
   const pending = useRef<LogEntry[]>([]);
   const frame = useRef<number | null>(null);
 
-  useSocket("/v1/sessions/logs", (data) => {
+  useSocket(sessionSocketPath(session, "logs"), (data) => {
     const events = (Array.isArray(data) ? data : [data]).filter(isBrowserEvent);
     if (events.length === 0) return;
     const next = events.map((event) => ({
@@ -129,10 +129,10 @@ export function useLogs(limit = 1000) {
   return entries;
 }
 
-export function usePageId() {
+export function usePageId(session: SessionDetails) {
   const [pageId, setPageId] = useState<string | null>(null);
 
-  useSocket("/v1/sessions/pageId", (data) => {
+  useSocket(sessionSocketPath(session, "pageId"), (data) => {
     if (typeof data === "object" && data !== null && "pageId" in data) {
       if (typeof data.pageId === "string") setPageId(data.pageId);
     }
@@ -234,4 +234,29 @@ export function useCopy(resetMs = 1500) {
   }, []);
 
   return { copied, copy };
+}
+
+/** A URL search parameter as state (?<key>=value), with back/forward support. */
+export function useUrlParam(key: string) {
+  const read = () => new URLSearchParams(window.location.search).get(key);
+  const [selected, setSelected] = useState<string | null>(read);
+
+  useEffect(() => {
+    const onPop = () => setSelected(read());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [key]);
+
+  const select = useCallback(
+    (id: string | null) => {
+      const url = new URL(window.location.href);
+      if (id) url.searchParams.set(key, id);
+      else url.searchParams.delete(key);
+      window.history.pushState(null, "", url);
+      setSelected(id);
+    },
+    [key],
+  );
+
+  return [selected, select] as const;
 }

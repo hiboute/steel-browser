@@ -29,9 +29,24 @@ const fleetPlugin: FastifyPluginAsync = async (server) => {
       return reply.code(error.statusCode ?? 500).send({ code: error.code ?? "fleet_error", message: error.statusCode ? error.message : "Fleet operation failed" });
     });
     routes.get("/fleet/workers", async request => { operator(server, request); return { workers: fleet.listWorkers() }; });
-    routes.post("/fleet/pairings", async request => { operator(server, request); return fleet.pair(pairing.parse(request.body)); });
-    routes.post("/fleet/workers/:id/:action", async request => { operator(server, request); return fleet.setWorker(id(request), z.enum(["drain", "resume", "revoke"]).parse((request.params as any).action)); });
-    routes.post("/fleet/worker/register", { config: { steelWorkerAuth: true } as any }, async request => { const body = z.object({ pairingToken: z.string().min(40).max(100), capabilities }).parse(request.body); return fleet.register(body.pairingToken, body.capabilities); });
+    routes.post("/fleet/pairings", async request => {
+      const actor = operator(server, request), body = pairing.parse(request.body);
+      const result = await fleet.pair(body);
+      await server.audit.log("fleet.pairing.created", { client: actor.id, subject: result.profileScope, detail: { engines: body.engines, expiresAt: result.expiresAt } });
+      return result;
+    });
+    routes.post("/fleet/workers/:id/:action", async request => {
+      const actor = operator(server, request), workerId = id(request), action = z.enum(["drain", "resume", "revoke"]).parse((request.params as any).action);
+      const result = await fleet.setWorker(workerId, action);
+      await server.audit.log(`fleet.worker.${action}`, { client: actor.id, subject: workerId });
+      return result;
+    });
+    routes.post("/fleet/worker/register", { config: { steelWorkerAuth: true } as any }, async request => {
+      const body = z.object({ pairingToken: z.string().min(40).max(100), capabilities }).parse(request.body);
+      const result = await fleet.register(body.pairingToken, body.capabilities);
+      await server.audit.log("fleet.worker.paired", { client: `worker:${result.workerId}`, subject: result.workerId, detail: { profileScope: result.profileScope, engines: body.capabilities.engines, protocol: body.capabilities.protocol } });
+      return result;
+    });
     routes.post("/fleet/worker/:id/poll", { config: { steelWorkerAuth: true } as any }, async request => { const body = z.object({ liveSessionIds: z.array(z.string().uuid()).max(16) }).parse(request.body); return fleet.poll(id(request), bearer(request), body.liveSessionIds); });
     routes.post("/fleet/worker/:id/commands/:commandId/result", { config: { steelWorkerAuth: true } as any, bodyLimit: 12 * 1024 * 1024 }, async request => { const body = z.object({ generation: z.number().int().positive(), result: z.unknown().optional(), error: z.string().max(200).optional() }).parse(request.body); return fleet.complete(id(request), bearer(request), id(request, "commandId"), body.generation, body); });
     routes.get("/fleet/sessions", async request => { const actor = access(server).actor(request); return { sessions: fleet.listSessions(actor.role === "operator" ? undefined : actor.id) }; });
@@ -44,7 +59,13 @@ const fleetPlugin: FastifyPluginAsync = async (server) => {
     routes.get("/fleet/sessions/:id", async request => { await access(server).authorizeSession(request, id(request), false); return fleet.getSession(id(request)); });
     routes.post("/fleet/sessions/:id/commands", async request => { await access(server).authorizeSession(request, id(request), true); const body = z.object({ kind: command, payload: z.record(z.string(), z.unknown()).default({}), idempotencyKey: z.string().min(1).max(200) }).parse(request.body); const generation = (server as any).control.get(id(request))?.generation; if (generation === undefined) throw new FleetError("control_required", "Acquire control before issuing fleet commands", 409); return fleet.command(id(request), body.kind, body.payload, body.idempotencyKey, generation); });
     routes.get("/fleet/sessions/:id/commands/:commandId", async request => { await access(server).authorizeSession(request, id(request), false); return fleet.getCommand(id(request), id(request, "commandId")); });
-    routes.post("/fleet/sessions/:id/commands/:commandId/reconcile", async request => { operator(server, request); await access(server).authorizeSession(request, id(request), true); const body = z.object({ decision: z.enum(["applied", "not_applied"]), result: z.unknown().optional() }).parse(request.body); return fleet.reconcile(id(request), id(request, "commandId"), body.decision, body.result); });
+    routes.post("/fleet/sessions/:id/commands/:commandId/reconcile", async request => {
+      const actor = operator(server, request); await access(server).authorizeSession(request, id(request), true);
+      const sessionId = id(request), commandId = id(request, "commandId"), body = z.object({ decision: z.enum(["applied", "not_applied"]), result: z.unknown().optional() }).parse(request.body);
+      const result = await fleet.reconcile(sessionId, commandId, body.decision, body.result);
+      await server.audit.log("fleet.command.reconciled", { client: actor.id, sessionId, subject: commandId, detail: { decision: body.decision } });
+      return result;
+    });
     routes.get("/fleet/checkpoints", async request => { const actor = access(server).actor(request); return { checkpoints: fleet.listCheckpoints(actor.role === "operator" ? undefined : actor.id) }; });
     routes.post("/sessions/:id/egress-diagnostics", async request => { await access(server).authorizeSession(request, id(request), true); return diagnostics.run(id(request)); });
     routes.get("/sessions/:id/egress-diagnostics", async request => { await access(server).authorizeSession(request, id(request), false); return diagnostics.get(id(request)); });

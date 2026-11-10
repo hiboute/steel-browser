@@ -70,6 +70,26 @@ retracted. After a prolonged coordinator outage the worker closes its browsers.
 continue. `/resume` admits work again; `/revoke` invalidates the token and fences
 the worker. Reconnecting browsers after service restarts requires presence
 reconciliation, and uncertain mutations still require an explicit decision.
+Pairing creation, successful registration, drain/resume/revoke and explicit
+command reconciliation append operator/worker IDs and scoped metadata to the
+audit log. Pairing tokens, worker credentials and browser command results are
+never included in these events.
+
+To uninstall the dedicated macOS worker, first drain it, close its owned sessions,
+and revoke its worker ID through the authenticated coordinator. Then, as the same
+desktop user that installed it:
+
+```sh
+launchctl bootout "gui/$(id -u)/fr.robiche.steel-worker"
+rm "$HOME/Library/LaunchAgents/fr.robiche.steel-worker.plist"
+```
+
+This stops the dedicated bridge and removes its automatic launch registration.
+Its credentials and dedicated profiles remain under `~/.local/state/steel-worker`
+for an explicit retention/deletion decision; revocation prevents their credentials
+from reconnecting. Personal Chrome profiles and Safari settings are not involved.
+Reinstallation after revocation requires a new pairing and a fresh dedicated
+state directory, rather than reusing revoked credentials.
 
 The `checkpoint` command saves **portable web state** (cookies, localStorage,
 sessionStorage and tabs). Launching a copy on a compatible worker uses the saved

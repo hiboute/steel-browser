@@ -340,7 +340,9 @@ it("discards visual snapshots if private capture begins during the screenshot", 
       html: "<p>Safe source</p>",
       secrets: [],
     }),
-    addStyleTag: vi.fn().mockResolvedValue({ evaluate: removeStyle }),
+    evaluateHandle: vi
+      .fn()
+      .mockResolvedValue({ evaluate: removeStyle, dispose: vi.fn().mockResolvedValue(undefined) }),
     screenshot: vi.fn(async () => {
       markSensitiveSession(sessionId);
       return Buffer.from("private image");

@@ -35,6 +35,7 @@ it.skipIf(!chrome)(
           void request.respond({
             status: 200,
             contentType: "text/html",
+            headers: { "Content-Security-Policy": "default-src 'none'; form-action 'none'" },
             body: '<html><head><title>Tea catalog</title></head><body><main><h1>Tea</h1><p id="price">Price: 12</p><p id="clock">10:00</p><input id="password" type="text"><p id="echo"></p></main></body></html>',
           }),
       );
@@ -49,7 +50,30 @@ it.skipIf(!chrome)(
         new DataRecords(new PlatformStore(path.join(root, "data"), "key")),
       );
       const options = { ignoreSelectors: ["#clock"], visual: true };
+      await page.$eval("#password", (element) => {
+        (element as HTMLInputElement).value = "fixture-sensitive-Alpha";
+      });
+      await page.$eval("#clock", (element) =>
+        (element as HTMLElement).style.setProperty("visibility", "visible", "important"),
+      );
       const before = await service.capture(page, "session", actor, options);
+      expect(
+        await page.$eval("#clock", (element) => ({
+          value: (element as HTMLElement).style.getPropertyValue("visibility"),
+          priority: (element as HTMLElement).style.getPropertyPriority("visibility"),
+        })),
+      ).toEqual({ value: "visible", priority: "important" });
+      await expect(
+        service.capture(page, "session", actor, { ...options, selector: "#missing" }),
+      ).rejects.toThrow("Snapshot selector not found");
+      expect(
+        await page.$eval("#password", (element) =>
+          (element as HTMLElement).style.getPropertyValue("visibility"),
+        ),
+      ).toBe("");
+      await page.$eval("#password", (element) => {
+        (element as HTMLInputElement).value = "fixture-sensitive-Beta";
+      });
       await page.$eval("#clock", (element) => {
         element.textContent = "11:00";
       });

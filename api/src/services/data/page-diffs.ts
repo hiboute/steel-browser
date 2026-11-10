@@ -1,4 +1,4 @@
-import type { Page, ElementHandle } from "puppeteer-core";
+import type { Page, JSHandle } from "puppeteer-core";
 import { createHash } from "node:crypto";
 import * as mupdf from "mupdf";
 import { DataError, DataRecords, type DataActor, type DataRecord } from "./common.js";
@@ -34,10 +34,12 @@ export class PageDiffService {
         );
     };
     assertImageAllowed();
-    let style: ElementHandle<HTMLStyleElement> | undefined;
+    let masked:
+      | JSHandle<Array<{ element: HTMLElement | SVGElement; value: string; priority: string }>>
+      | undefined;
     const selector = options.selector || "body";
     try {
-      // CSS.escape cannot escape a selector; validate selectors in the browser before concatenating.
+      // Validate all selectors before changing page state.
       const ignored = [
         "input",
         "textarea",
@@ -51,10 +53,29 @@ export class PageDiffService {
         },
         [selector, ...ignored],
       );
-      // Visibility preserves layout and excludes secret values from screenshots. Text capture separately removes them.
-      style = await page.addStyleTag({
-        content: ignored.map((item) => `${item}{visibility:hidden!important}`).join("\n"),
-      });
+      // DOM style properties work under restrictive style-src CSP without bypassing
+      // that policy. Keep exact handles and previous priorities for restoration.
+      if (options.visual) {
+        masked = await page.evaluateHandle((selectors) => {
+          const elements = new Set<HTMLElement | SVGElement>();
+          for (const selector of selectors) {
+            for (const element of document.querySelectorAll(selector)) {
+              if (element instanceof HTMLElement || element instanceof SVGElement)
+                elements.add(element);
+              if (elements.size > 5000) throw new Error("Snapshot masking limit exceeded");
+            }
+          }
+          return [...elements].map((element) => {
+            const prior = {
+              element,
+              value: element.style.getPropertyValue("visibility"),
+              priority: element.style.getPropertyPriority("visibility"),
+            };
+            element.style.setProperty("visibility", "hidden", "important");
+            return prior;
+          });
+        }, ignored);
+      }
       const source = await captureSource(page, 100_000, { selector, ignoreSelectors: ignored });
       let text = source.text
         .normalize("NFKC")
@@ -86,7 +107,20 @@ export class PageDiffService {
       );
       return this.metadata(record);
     } finally {
-      await style?.evaluate((element) => element.remove()).catch(() => undefined);
+      await masked
+        ?.evaluate((entries) => {
+          for (const { element, value, priority } of entries) {
+            if (
+              element.style.getPropertyValue("visibility") !== "hidden" ||
+              element.style.getPropertyPriority("visibility") !== "important"
+            )
+              continue;
+            if (value) element.style.setProperty("visibility", value, priority);
+            else element.style.removeProperty("visibility");
+          }
+        })
+        .catch(() => undefined);
+      await masked?.dispose().catch(() => undefined);
     }
   }
   metadata(record: PageSnapshot) {

@@ -46,7 +46,8 @@ describe("fleet durable coordination", () => {
     const command = await fleet.command(s.id, "goto", { url: "https://example.org/submit" }, "mutation"); await fleet.poll(w.workerId, w.token, [s.id]);
     const restarted = new FleetService(store); await restarted.initialize(); expect(restarted.getCommand(s.id, command.id).state).toBe("uncertain");
     expect((await restarted.poll(w.workerId, w.token, [s.id])).commands).toHaveLength(0); expect(restarted.getSession(s.id).state).toBe("uncertain");
-    await expect(restarted.complete(w.workerId, w.token, command.id, w.generation, { result: true })).rejects.toMatchObject({ code: "command_uncertain" });
+    expect(await restarted.complete(w.workerId, w.token, command.id, w.generation, { result: true })).toEqual({ accepted: true, uncertain: true });
+    expect(restarted.getCommand(s.id, command.id).state).toBe("uncertain");
     await restarted.reconcile(s.id, command.id, "applied", { verified: true }); await restarted.poll(w.workerId, w.token, [s.id]); expect(restarted.getSession(s.id).state).toBe("live");
   });
   it("branches portable state only for the owning client and matching engine", async () => {
@@ -60,5 +61,11 @@ describe("fleet durable coordination", () => {
   it("marks hung commands uncertain and never falls back to another worker", async () => {
     const { fleet, advance } = await setup(); const w = await worker(fleet); const s = await live(fleet, w); const c = await fleet.command(s.id, "goto", { url: "https://example.org" }, "go"); await fleet.poll(w.workerId, w.token, [s.id]); advance(120_001); await fleet.poll(w.workerId, w.token, [s.id]); expect(fleet.getCommand(s.id, c.id).state).toBe("uncertain");
     advance(45_001); await expect(fleet.command(s.id, "close", {}, "close")).rejects.toMatchObject({ code: "worker_unavailable" });
+  });
+  it("fences queued and in-flight commands when human control changes", async () => {
+    const { store } = await setup(); let generation = 1; const fleet = new FleetService(store, Date.now, 45_000, (_id, current) => current === generation); await fleet.initialize(); const w = await worker(fleet); const s = await live(fleet, w);
+    const queued = await fleet.command(s.id, "snapshot", {}, "queued", 1); generation = 2; expect((await fleet.poll(w.workerId, w.token, [s.id])).commands).toHaveLength(0); expect(fleet.getCommand(s.id, queued.id).state).toBe("failed");
+    const running = await fleet.command(s.id, "goto", { url: "https://example.org" }, "running", 2); await fleet.poll(w.workerId, w.token, [s.id]); generation = 3; const poll = await fleet.poll(w.workerId, w.token, [s.id]); expect(poll.fencedSessionIds).toEqual([s.id]); expect(fleet.getCommand(s.id, running.id).state).toBe("uncertain");
+    expect(await fleet.complete(w.workerId, w.token, running.id, w.generation, { result: true })).toEqual({ accepted: true, uncertain: true });
   });
 });

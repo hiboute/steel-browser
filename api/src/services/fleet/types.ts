@@ -38,6 +38,7 @@ export interface FleetCommand {
   sessionId: string;
   workerId: string;
   generation: number;
+  controlGeneration?: number;
   kind: FleetCommandName;
   payload: Record<string, unknown>;
   idempotencyKey: string;

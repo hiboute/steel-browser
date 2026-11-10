@@ -49,6 +49,8 @@ jobs:
             sleep 1
           done
           docker exec steel-ui-candidate-test sh -c 'test -s /tmp/index.html && grep -q "assets/" /tmp/index.html'
+      - name: Verify kernel-enforced strict egress and outage behavior
+        run: sh workers/test-strict.sh steel-worker-candidate
       - name: Authenticate publication
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3

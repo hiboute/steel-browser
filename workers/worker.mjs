@@ -46,6 +46,7 @@ export class BrowserWorker {
     for (const [id, result] of this.results) { await this.request(`/${this.credentials.workerId}/commands/${id}/result`, result); this.results.delete(id); }
     const response = await this.request(`/${this.credentials.workerId}/poll`, { liveSessionIds: [...this.sessions.keys()] });
     if (response.revoked || response.generation !== this.credentials.generation) throw Object.assign(new Error("worker_revoked_or_fenced"), { fatal: true });
+    for (const sessionId of response.fencedSessionIds ?? []) { const adapter = this.sessions.get(sessionId); if (adapter) { await adapter.close().catch(() => {}); this.sessions.delete(sessionId); } }
     for (const command of response.commands) {
       if (this.running.has(command.id) || this.results.has(command.id)) continue;
       const task = this.execute(command).finally(() => this.running.delete(command.id)); this.running.set(command.id, task);

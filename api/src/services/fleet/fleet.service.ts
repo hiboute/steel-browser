@@ -12,7 +12,7 @@ const fresh = (): State => ({ version: 1, workers: [], sessions: [], commands: [
 export class FleetService {
   private state: State = fresh();
   private pending: Promise<unknown> = Promise.resolve();
-  constructor(private readonly store: PlatformStore, private readonly now = Date.now, readonly workerTimeoutMs = 45_000) {}
+  constructor(private readonly store: PlatformStore, private readonly now = Date.now, readonly workerTimeoutMs = 45_000, private readonly currentControl: (sessionId: string, generation: number) => boolean = () => true) {}
   async initialize() {
     this.state = await this.store.read<State>("fleet/state.json") ?? fresh();
     if (this.state.version !== 1) throw new FleetError("fleet_version", "Unsupported fleet state version", 503);
@@ -74,21 +74,21 @@ export class FleetService {
       await this.save(); return { session: structuredClone(session), command: structuredClone(command) };
     });
   }
-  private enqueue(session: FleetSession, kind: FleetCommandName, payload: Record<string, unknown>, idempotencyKey: string) {
+  private enqueue(session: FleetSession, kind: FleetCommandName, payload: Record<string, unknown>, idempotencyKey: string, controlGeneration?: number) {
     const existing = this.state.commands.find(c => c.sessionId === session.id && c.idempotencyKey === idempotencyKey);
     if (existing) { if (existing.kind !== kind || JSON.stringify(existing.payload) !== JSON.stringify(payload)) throw new FleetError("idempotency_conflict", "Idempotency key already has different content"); return existing; }
     const worker = this.worker(session.workerId);
     if (!this.healthy(worker)) throw new FleetError("worker_unavailable", "Worker is unavailable; no fallback or mutation replay is allowed", 503);
     if (!worker.capabilities.commands.includes(kind)) throw new FleetError("unsupported_capability", `Worker does not support ${kind}`, 422);
-    const command: FleetCommand = { id: randomUUID(), sessionId: session.id, workerId: worker.id, generation: worker.generation, kind, payload, idempotencyKey, state: "queued", createdAt: new Date(this.now()).toISOString() };
+    const command: FleetCommand = { id: randomUUID(), sessionId: session.id, workerId: worker.id, generation: worker.generation, controlGeneration, kind, payload, idempotencyKey, state: "queued", createdAt: new Date(this.now()).toISOString() };
     this.state.commands.push(command); return command;
   }
-  async command(id: string, kind: FleetCommandName, payload: Record<string, unknown>, idempotencyKey: string) {
+  async command(id: string, kind: FleetCommandName, payload: Record<string, unknown>, idempotencyKey: string, controlGeneration?: number) {
     return this.serial(async () => {
       const session = this.state.sessions.find(s => s.id === id); if (!session) throw new FleetError("fleet_session_not_found", "Fleet session not found", 404);
       const prior = this.state.commands.find(c => c.sessionId === id && c.idempotencyKey === idempotencyKey);
       if (!prior && session.state !== "live" && kind !== "close") throw new FleetError("session_not_ready", "Session must be live before commands can execute");
-      const command = this.enqueue(session, kind, payload, idempotencyKey); if (kind === "close") session.state = "closing";
+      const command = this.enqueue(session, kind, payload, idempotencyKey, controlGeneration); if (kind === "close") session.state = "closing";
       await this.save(); return structuredClone(command);
     });
   }
@@ -96,6 +96,14 @@ export class FleetService {
   async poll(id: string, token: string, liveSessionIds: string[]) {
     return this.serial(async () => {
       const worker = this.authenticate(id, token); worker.lastSeen = this.now();
+      const fencedSessions = new Set<string>();
+      for (const command of this.state.commands.filter(c => c.workerId === id && ["queued", "running"].includes(c.state))) {
+        if (command.controlGeneration !== undefined && !this.currentControl(command.sessionId, command.controlGeneration)) {
+          if (command.state === "running") { fencedSessions.add(command.sessionId); command.state = "uncertain"; const session = this.state.sessions.find(s => s.id === command.sessionId); if (session) session.state = "uncertain"; }
+          else command.state = "failed";
+          command.error = "control_lease_changed";
+        }
+      }
       // Reconcile presence, not the outcome of an uncertain external mutation.
       for (const session of this.state.sessions.filter(s => s.workerId === id)) {
         if (session.state === "uncertain" && liveSessionIds.includes(session.id) && !this.state.commands.some(c => c.sessionId === session.id && c.state === "uncertain")) session.state = "live";
@@ -108,7 +116,7 @@ export class FleetService {
         if (running.has(command.sessionId)) continue;
         command.state = "running"; command.claimedAt = this.now(); running.add(command.sessionId); commands.push(structuredClone(command));
       }
-      await this.save(); return { generation: worker.generation, revoked: false, commands };
+      await this.save(); return { generation: worker.generation, revoked: false, commands, fencedSessionIds: [...fencedSessions] };
     });
   }
   async complete(id: string, token: string, commandId: string, generation: number, outcome: { result?: unknown; error?: string }) {
@@ -116,8 +124,10 @@ export class FleetService {
       const worker = this.authenticate(id, token); const command = this.state.commands.find(c => c.id === commandId && c.workerId === id);
       if (!command || generation !== worker.generation || command.generation !== generation) throw new FleetError("stale_worker_generation", "Worker command generation is stale", 409);
       if (command.state === "completed" || command.state === "failed") return { accepted: true };
-      if (command.state !== "running") throw new FleetError("command_uncertain", "Command requires explicit reconciliation; late result was not applied");
+      if (command.state === "uncertain") return { accepted: true, uncertain: true };
+      if (command.state !== "running") throw new FleetError("command_not_running", "Command was not dispatched");
       const session = this.state.sessions.find(s => s.id === command.sessionId)!;
+      if (command.controlGeneration !== undefined && !this.currentControl(command.sessionId, command.controlGeneration)) { command.state = "uncertain"; command.error = "control_lease_changed"; session.state = "uncertain"; await this.save(); return { accepted: true, uncertain: true }; }
       command.state = outcome.error ? "failed" : "completed"; command.result = outcome.result; command.error = outcome.error?.slice(0, 200);
       if (command.kind === "launch") { session.state = outcome.error ? "closed" : "live"; session.lastError = command.error; const version = (outcome.result as any)?.browserVersion; if (!outcome.error && typeof version === "string") worker.capabilities.browserVersions[session.engine] = version.slice(0, 100); }
       if (command.kind === "close") session.state = outcome.error ? "uncertain" : "closed";

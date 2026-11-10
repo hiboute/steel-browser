@@ -18,7 +18,7 @@ function id(request: FastifyRequest, key = "id") { return z.string().uuid().pars
 
 declare module "fastify" { interface FastifyInstance { fleet: FleetService; egressDiagnostics: BrowserEgressDiagnostics; } }
 const fleetPlugin: FastifyPluginAsync = async (server) => {
-  const fleet = new FleetService(server.store);
+  const fleet = new FleetService(server.store, Date.now, 45_000, (sessionId, generation) => (server as any).control?.isGenerationCurrent(sessionId, generation) ?? false);
   const diagnostics = new BrowserEgressDiagnostics(server.sessionService, server.store);
   server.decorate("fleet", fleet); server.decorate("egressDiagnostics", diagnostics);
   // The platform hook runs after named egress resolution and before browser admission.
@@ -42,7 +42,7 @@ const fleetPlugin: FastifyPluginAsync = async (server) => {
       await (server as any).control.registerResource(result.session.id, actor.id); return result;
     });
     routes.get("/fleet/sessions/:id", async request => { await access(server).authorizeSession(request, id(request), false); return fleet.getSession(id(request)); });
-    routes.post("/fleet/sessions/:id/commands", async request => { await access(server).authorizeSession(request, id(request), true); const body = z.object({ kind: command, payload: z.record(z.string(), z.unknown()).default({}), idempotencyKey: z.string().min(1).max(200) }).parse(request.body); return fleet.command(id(request), body.kind, body.payload, body.idempotencyKey); });
+    routes.post("/fleet/sessions/:id/commands", async request => { await access(server).authorizeSession(request, id(request), true); const body = z.object({ kind: command, payload: z.record(z.string(), z.unknown()).default({}), idempotencyKey: z.string().min(1).max(200) }).parse(request.body); const generation = (server as any).control.get(id(request))?.generation; if (generation === undefined) throw new FleetError("control_required", "Acquire control before issuing fleet commands", 409); return fleet.command(id(request), body.kind, body.payload, body.idempotencyKey, generation); });
     routes.get("/fleet/sessions/:id/commands/:commandId", async request => { await access(server).authorizeSession(request, id(request), false); return fleet.getCommand(id(request), id(request, "commandId")); });
     routes.post("/fleet/sessions/:id/commands/:commandId/reconcile", async request => { operator(server, request); await access(server).authorizeSession(request, id(request), true); const body = z.object({ decision: z.enum(["applied", "not_applied"]), result: z.unknown().optional() }).parse(request.body); return fleet.reconcile(id(request), id(request, "commandId"), body.decision, body.result); });
     routes.get("/fleet/checkpoints", async request => { const actor = access(server).actor(request); return { checkpoints: fleet.listCheckpoints(actor.role === "operator" ? undefined : actor.id) }; });

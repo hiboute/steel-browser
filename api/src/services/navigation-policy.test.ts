@@ -255,6 +255,32 @@ describe.skipIf(!existsSync(chrome))("real Chromium navigation interception", ()
     expect(websocketHits).toBe(0);
     expect(hits.some((hit) => hit.includes("worker.js"))).toBe(false);
   });
+  it("loads HTTP/2-style responses without a reason phrase while applying the guard", async () => {
+    await open();
+    const createSession = page.createCDPSession.bind(page);
+    let simulatedHttp2 = false;
+    page.createCDPSession = async () => {
+      const client = await createSession();
+      // HTTP/2 has no reason phrase. Preserve the real request/body and reproduce the
+      // empty CDP responseStatusText returned by production Chrome for HTTPS sites.
+      client.on("Fetch.requestPaused", (event) => {
+        if (event.responseStatusCode !== undefined) {
+          event.responseStatusText = "";
+          simulatedHttp2 = true;
+        }
+      });
+      return client;
+    };
+    await withNavigationPolicy(
+      page,
+      async () => {
+        await navigate("/");
+        expect(await page.evaluate(() => document.body.innerText)).toBe("Public page");
+      },
+      options,
+    );
+    expect(simulatedHttp2).toBe(true);
+  });
   it("preserves compressed document content while installing the response policy", async () => {
     await open();
     await withNavigationPolicy(

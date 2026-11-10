@@ -235,7 +235,10 @@ export async function withNavigationPolicy<T>(
                         : Buffer.from(body.body).toString("base64"),
                       requestId: event.requestId,
                       responseCode: event.responseStatusCode,
-                      responsePhrase: event.responseStatusText,
+                      // HTTP/2 omits the reason phrase; CDP rejects an explicit empty one.
+                      ...(event.responseStatusText
+                        ? { responsePhrase: event.responseStatusText }
+                        : {}),
                       responseHeaders: [
                         ...(event.responseHeaders ?? []).filter(
                           (header) =>

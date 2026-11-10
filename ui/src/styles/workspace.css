@@ -59,6 +59,24 @@
   overflow-wrap: anywhere;
   margin: 0;
 }
+.assertion-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: baseline;
+}
+.assertion-row > .field-hint {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.assertion-row > .field-hint code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.assertion-row > a {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .status-chip {
   display: inline-flex;
   align-items: center;

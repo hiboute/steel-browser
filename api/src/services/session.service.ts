@@ -149,6 +149,14 @@ export class SessionService {
     return this.sessions.get(sessionId);
   }
 
+  /** A live session, or the idle one (the primary browser between sessions). */
+  public findSocketSession(sessionId: string): Session | undefined {
+    return (
+      this.sessions.get(sessionId) ??
+      (this.idleSession.id === sessionId ? this.idleSession : undefined)
+    );
+  }
+
   public listSessions(): Session[] {
     return Array.from(this.sessions.values());
   }

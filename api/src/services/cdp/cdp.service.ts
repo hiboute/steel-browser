@@ -1320,6 +1320,7 @@ export class CDPService extends EventEmitter {
       head,
       {
         target: this.wsEndpoint,
+        changeOrigin: true,
       },
       (error) => {
         if (error) {
@@ -1364,6 +1365,23 @@ export class CDPService extends EventEmitter {
       return cookies;
     } finally {
       await session.detach().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Returns the browser version reported by the running browser instance,
+   * e.g. `Chrome/150.0.7871.124`. Returns an empty string when no browser is
+   * running or the version cannot be resolved.
+   */
+  public async getBrowserVersion(): Promise<string> {
+    if (!this.browserInstance) {
+      return "";
+    }
+    try {
+      return await this.browserInstance.version();
+    } catch (error) {
+      this.logger.warn(`[CDPService] Failed to resolve browser version: ${error}`);
+      return "";
     }
   }
 

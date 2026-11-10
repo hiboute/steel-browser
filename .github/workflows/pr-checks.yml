@@ -4,6 +4,7 @@ name: PR Quality Checks
 on:
   pull_request_target:
     branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -27,9 +28,11 @@ jobs:
       - name: Check Breaking Changes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           # Get list of changed files in this PR
-          CHANGED_FILES=$(gh pr view ${{ github.event.pull_request.number }} --json files --jq '.files[].path' | tr '\n' ' ')
+          CHANGED_FILES=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json files --jq '.files[].path')
           echo "Changed files: $CHANGED_FILES"
 
           # Check for potential breaking changes in specific files

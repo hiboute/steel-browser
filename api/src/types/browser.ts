@@ -26,6 +26,7 @@ export interface BrowserLaunchExtra {
 }
 
 export interface BrowserLauncherOptions {
+  compatibilityMode?: "native" | "compatible" | "legacy";
   options: BrowserServerOptions;
   req?: Request;
   stealth?: boolean;

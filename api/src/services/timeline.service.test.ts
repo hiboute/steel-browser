@@ -7,6 +7,7 @@ import { PlatformStore } from "./platform/store.js";
 import { TimelineService } from "./timeline.service.js";
 import { BrowserEventType, EmitEvent } from "../types/enums.js";
 import type { Session } from "./session.service.js";
+import { markSensitiveSession } from "./data/privacy.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -39,6 +40,47 @@ async function setup(maxEntries = 2000) {
 }
 
 describe("session timeline", () => {
+  it("does not save images or page metadata when private capture begins during a screenshot", async () => {
+    const { service, session, sessions, store, deps } = await setup();
+    const id = "timeline-private-race";
+    const page = {
+      isClosed: () => false,
+      evaluate: async () => true,
+      url: () => "https://example.com/secret-value",
+      title: async () => "secret-value",
+      createCDPSession: async () => ({
+        send: async (method: string) => {
+          if (method === "Page.getLayoutMetrics")
+            return {
+              cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 100, clientHeight: 100 },
+            };
+          markSensitiveSession(id);
+          return { data: Buffer.from("secret-image").toString("base64") };
+        },
+        detach: async () => {},
+      }),
+    };
+    session.cdpService.getAllPages = async () => [page] as never;
+    sessions.set(id, session);
+    const result = await service.append(id, {
+      tool: "read",
+      screenshot: true,
+      args: { text: "secret-value" },
+      url: "https://example.com/secret-value",
+      title: "secret-value",
+      error: "secret-value",
+    });
+    expect(result).toMatchObject({
+      screenshot: false,
+      args: { redacted: true },
+      error: "[private capture]",
+    });
+    expect(JSON.stringify(await service.read(id))).not.toContain("secret-value");
+    expect(JSON.stringify(deps.publish.mock.calls)).not.toContain("secret-value");
+    await expect(readFile(store.path(`timeline/${id}/1.jpg`))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
   it("serializes concurrent appends, caps history and resumes sequence numbers after restart", async () => {
     const { service, deps } = await setup(2);
     const entries = await Promise.all(

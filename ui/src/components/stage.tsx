@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
-import { apiUrl, isPrimarySession, type SessionDetails } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { apiUrl, mutate, sessionPath, type SessionDetails } from "../api";
 import { useColorScheme, usePageId } from "../hooks";
 import { Details } from "./details";
 import { Notice } from "./notice";
+import { useLocalControl } from "../control";
 
 type BridgeMessage = {
   type?: string;
@@ -10,10 +11,11 @@ type BridgeMessage = {
   text?: string;
 };
 
-function LiveFrame({ url }: { url: string }) {
+function LiveFrame({ url, sessionId }: { url: string; sessionId: string }) {
   const container = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const theme = useColorScheme();
+  const control = useLocalControl(sessionId);
 
   const src = useMemo(() => {
     const target = new URL(url, window.location.href);
@@ -21,6 +23,15 @@ function LiveFrame({ url }: { url: string }) {
     target.searchParams.set("clipboardBridge", "true");
     return target;
   }, [url, theme]);
+
+  const postControl = () =>
+    frame.current?.contentWindow?.postMessage(
+      { type: "steel-control", sessionId, token: control?.token ?? null },
+      src.origin,
+    );
+  useEffect(() => {
+    postControl();
+  }, [sessionId, control?.token, src]);
 
   useEffect(() => {
     const origin = src.origin;
@@ -85,6 +96,7 @@ function LiveFrame({ url }: { url: string }) {
         src={src.toString()}
         title="Live browser"
         className="live-frame"
+        onLoad={postControl}
         sandbox="allow-same-origin allow-scripts"
         allow="clipboard-read; clipboard-write"
       />
@@ -94,15 +106,54 @@ function LiveFrame({ url }: { url: string }) {
 
 function DevTools({ session }: { session: SessionDetails }) {
   const pageId = usePageId(session);
-  const query = pageId ? `?pageId=${encodeURIComponent(pageId)}` : "";
+  const control = useLocalControl(session.id),
+    [src, setSrc] = useState<string>(),
+    [error, setError] = useState<string>(),
+    [version, setVersion] = useState(0);
+  useEffect(() => {
+    setSrc(undefined);
+    setError(undefined);
+    if (!control) return;
+    const abort = new AbortController();
+    void mutate<{ ticket: string }>(
+      `${sessionPath(session.id)}/control/ticket`,
+      { channel: "cdp" },
+      "POST",
+      abort.signal,
+    )
+      .then(({ ticket }) => {
+        if (abort.signal.aborted) return;
+        const query = new URLSearchParams({ controlTicket: ticket });
+        if (pageId) query.set("pageId", pageId);
+        setSrc(apiUrl(`${sessionPath(session.id)}/devtools?${query}`));
+      })
+      .catch((error) => {
+        if (!abort.signal.aborted) setError(String(error.message));
+      });
+    return () => abort.abort();
+  }, [session.id, control?.token, pageId, version]);
 
   return (
     <div className="dock">
-      <iframe
-        title="Chrome DevTools"
-        className="dock-frame"
-        src={apiUrl(`/v1/devtools/inspector.html${query}`)}
-      />
+      {!control ? (
+        <Notice title="Developer tools need control">
+          Take control of this browser to inspect or change its page.
+        </Notice>
+      ) : error ? (
+        <Notice title="Developer tools unavailable">{error}</Notice>
+      ) : src ? (
+        <>
+          <button
+            className="pill-button dock-reconnect"
+            onClick={() => setVersion((value) => value + 1)}
+          >
+            Reconnect developer tools
+          </button>
+          <iframe title="Chrome DevTools" className="dock-frame" src={src} />
+        </>
+      ) : (
+        <Notice title="Connecting developer tools" busy />
+      )}
     </div>
   );
 }
@@ -115,12 +166,19 @@ export function Stage({
   devtoolsOpen: boolean;
 }) {
   const running = ["live", "idle"].includes(session.status);
-  const docked = running && devtoolsOpen && Boolean(session.debugUrl) && isPrimarySession(session);
+  const docked = session.status === "live" && devtoolsOpen && Boolean(session.debugUrl);
 
   return (
     <section className="stage" data-devtools={docked ? "open" : "closed"} aria-label="Live view">
       {running && session.debugUrl ? (
-        <LiveFrame url={session.debugUrl} />
+        <LiveFrame
+          sessionId={session.id}
+          url={
+            session.status === "live"
+              ? apiUrl(`/v1/sessions/${encodeURIComponent(session.id)}/debug`)
+              : session.debugUrl
+          }
+        />
       ) : (
         <div className="player">
           {session.status === "parked" ? (

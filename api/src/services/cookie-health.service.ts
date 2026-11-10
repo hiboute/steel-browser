@@ -277,8 +277,19 @@ export async function prepareCookieSession(
     ...options,
     browserProfile: existingIdentity ? profileName : undefined,
   });
+  // A versioned identity (including native mode) owns browser identity fields.
+  // Importing credentials must not silently reintroduce an older cookie/profile UA.
+  const managedIdentity =
+    !!options.identityProfile ||
+    options.compatibilityMode === "native" ||
+    options.compatibilityMode === "compatible";
+  if (managedIdentity) {
+    for (const key of ["fingerprint", "userAgent", "dimensions", "timezone", "locale"] as const) {
+      if ((options as unknown as Record<string, unknown>)[key] === undefined) delete resolved[key];
+    }
+  }
   Object.assign(options, resolved, { browserProfile: profileName });
-  if (existingIdentity) {
+  if (existingIdentity && !managedIdentity) {
     // Explicit launch fields win; a saved browser wins over a cookie-set pin.
     options.fingerprint ??= saved;
     options.userAgent ??= saved!.fingerprint.navigator.userAgent;

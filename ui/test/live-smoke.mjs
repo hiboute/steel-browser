@@ -8,6 +8,8 @@ const api = process.env.API_TEST_BASE_URL || "http://127.0.0.1:3307";
 const site = process.env.UI_TEST_FIXTURE_URL || "http://127.0.0.1:3347";
 const cdpBase = (process.env.UI_TEST_CDP_URL || api.replace(/^http/, "ws")).replace(/\/$/, "");
 const artifacts = process.env.UI_TEST_ARTIFACT_DIR || join(tmpdir(), "steel-ui-smoke");
+const operatorKey = process.env.UI_TEST_OPERATOR_KEY,
+  leases = new Map();
 await mkdir(artifacts, { recursive: true });
 const runId = Date.now().toString(36),
   sessionName = `UI smoke ${runId}`,
@@ -15,11 +17,14 @@ const runId = Date.now().toString(36),
   watcherName = `UI smoke ${runId}`,
   warmName = `ui-smoke-${runId}`;
 const request = async (path, body, method = body === undefined ? "GET" : "POST") => {
+  const sessionId = /\/sessions\/([^/]+)/.exec(path)?.[1] || body?.sessionId;
   const response = await fetch(api + path, {
     method,
     headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       "X-Steel-Client": "ui",
+      ...(operatorKey ? { Authorization: `Bearer ${operatorKey}` } : {}),
+      ...(leases.has(sessionId) ? { "X-Steel-Control": leases.get(sessionId) } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
@@ -33,6 +38,14 @@ const browser = await puppeteer.launch({
   args: ["--no-sandbox", "--disable-dev-shm-usage"],
 });
 const page = await browser.newPage();
+if (operatorKey) await page.setExtraHTTPHeaders({ Authorization: `Bearer ${operatorKey}` });
+page.on("response", (response) => {
+  if (/\/control\/(acquire|transfer)$/.test(response.url()) && response.ok())
+    void response
+      .json()
+      .then((value) => leases.set(value.lease.sessionId, value.token))
+      .catch(() => {});
+});
 await page.setViewport({ width: 1440, height: 1000 });
 await page.evaluateOnNewDocument(() => {
   localStorage.setItem("steel-browser:console", "0");
@@ -69,6 +82,15 @@ const wait = async (fn) => {
   throw new Error("Timed out waiting for state");
 };
 let id, cdp, watcherId;
+const connect = async (id) => {
+  const { ticket } = await request(`/v1/sessions/${id}/control/ticket`, { channel: "cdp" });
+  return puppeteer.connect({
+    browserWSEndpoint: `${cdpBase}/v1/sessions/${id}/cdp?controlTicket=${encodeURIComponent(
+      ticket,
+    )}`,
+    ...(operatorKey ? { headers: { Authorization: `Bearer ${operatorKey}` } } : {}),
+  });
+};
 const rowClick = async (name, text, selector) => {
   await page.waitForFunction(
     (n, t, s) =>
@@ -111,11 +133,12 @@ try {
   });
   id = session.id;
   results.push("Session created through UI");
-  cdp = await puppeteer.connect({ browserWSEndpoint: `${cdpBase}/v1/sessions/${id}/cdp` });
+  await click("Take control");
+  await wait(() => leases.has(id));
+  cdp = await connect(id);
   const tab = (await cdp.pages())[0];
   await tab.goto(site, { waitUntil: "networkidle0" });
   await tab.click("button");
-  await page.goto(`${base}/?session=${id}`, { waitUntil: "networkidle0" });
   await wait(async () => Boolean(await page.$("iframe.live-frame")));
   await request(`/v1/sessions/${id}/timeline`, {
     tool: "integration_check",
@@ -153,7 +176,14 @@ try {
   await click("Downloads");
   await page.waitForSelector(".file-list a");
   const download = await page.$eval(".file-list a", (el) => el.href);
-  assert.equal((await fetch(download)).status, 200);
+  assert.equal(
+    (
+      await fetch(download, {
+        headers: operatorKey ? { Authorization: `Bearer ${operatorKey}` } : {},
+      })
+    ).status,
+    200,
+  );
   results.push("Downloaded file listed and fetched through UI");
   await click("Park");
   await wait(async () => (await request(`/v1/sessions/${id}`)).status === "parked");
@@ -162,9 +192,12 @@ try {
   results.push("Session parked through UI");
   await page.waitForFunction(() => document.body.textContent.includes("Saved for later"));
   await page.screenshot({ path: join(artifacts, "parked.png"), fullPage: true });
+  const previousLease = leases.get(id);
+  await click("Take control");
+  await wait(() => leases.get(id) !== previousLease);
   await click("Resume");
   await wait(async () => (await request(`/v1/sessions/${id}`)).status === "live");
-  cdp = await puppeteer.connect({ browserWSEndpoint: `${cdpBase}/v1/sessions/${id}/cdp` });
+  cdp = await connect(id);
   const restored = (await cdp.pages()).find((p) => p.url().startsWith(site));
   assert.ok(restored);
   assert.equal(await restored.evaluate(() => localStorage.getItem("test")), "saved");
@@ -261,7 +294,19 @@ try {
       (w) => w.name === watcherName,
     )?.id;
   if (watcherId) await remove("/v1/watchers/" + encodeURIComponent(watcherId));
-  if (id) await remove(`/v1/sessions/${id}/release`, "POST");
+  if (id) {
+    try {
+      const { lease } = await request(`/v1/sessions/${id}/control`);
+      const value = await request(`/v1/sessions/${id}/control/${lease ? "transfer" : "acquire"}`, {
+        mode: "human",
+        ttlMs: 60000,
+      });
+      leases.set(id, value.token);
+    } catch (error) {
+      cleanup.push(error.message);
+    }
+    await remove(`/v1/sessions/${id}/release`, "POST");
+  }
   const login = (await request("/v1/cookie-library").catch(() => ({ sets: [] }))).sets.find(
     (s) => s.name === loginName,
   );

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   createSession,
+  mutate,
   listBrowserProfiles,
   listVpnProviders,
   type EgressProfile,
@@ -74,6 +75,21 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
           keepAlive: data.get("keepAlive") === "on",
           record: data.get("record") === "on",
           egress: text("egress"),
+          identityProfile: text("identityProfile"),
+          siteProfile: text("siteProfile"),
+          mobileProfile: text("mobileProfile"),
+          compatibilityMode: text("compatibilityMode") as
+            | "native"
+            | "compatible"
+            | "legacy"
+            | undefined,
+          continuityPolicy:
+            data.get("continuityPolicy") === "require-confirmation"
+              ? "require-confirmation"
+              : "warn",
+          continuityToken: text("continuityToken"),
+          egressPolicy: data.get("egressPolicy") === "strict" ? "strict" : "standard",
+          siteScope: text("siteScope"),
           extensions: data.getAll("extensions").map(String),
           queueTimeout: 45000,
           deviceConfig: { device },
@@ -191,6 +207,7 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
               </label>
             </div>
             <SessionExtras key={`extra${opened}`} />
+            <IdentityOptions key={`identity${opened}`} />
             <div className="field">
               <span>Device</span>
               <Segmented label="Device" value={device} onChange={setDevice} options={devices} />
@@ -322,6 +339,166 @@ function SessionExtras() {
         </fieldset>
       )}
     </>
+  );
+}
+
+function IdentityOptions() {
+  const [preview, setPreview] = useState<any>(),
+    [checking, setChecking] = useState(false),
+    [previewError, setPreviewError] = useState<string | null>(null);
+  const previewNetwork = async (button: HTMLButtonElement) => {
+    const form = button.closest("form");
+    if (!form) return;
+    const data = new FormData(form);
+    setChecking(true);
+    setPreviewError(null);
+    try {
+      setPreview(
+        await mutate("/v1/identity/continuity/preview", {
+          identityProfile: String(data.get("identityProfile") || "") || undefined,
+          browserProfile: String(data.get("browserProfile") || "") || undefined,
+          cookieSets: data.getAll("cookieSets"),
+          egress: String(data.get("egress") || "") || undefined,
+        }),
+      );
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setChecking(false);
+    }
+  };
+  const identities = useResource<{ profiles: { name: string; revision: number }[] }>(
+    "/v1/identity-profiles",
+    0,
+  );
+  const sites = useResource<{ profiles: { name: string; origin: string }[] }>(
+    "/v1/site-profiles",
+    0,
+  );
+  const mobile = useResource<{ profiles: { id: string; name?: string }[] }>(
+    "/v1/mobile-profiles",
+    0,
+  );
+  return (
+    <details className="session-identity-options">
+      <summary>Identity, mobile fidelity & continuity</summary>
+      <p className="field-hint">
+        Use coherent identity settings across sessions. Mobile profiles emulate Chromium; real
+        devices are managed in Browser fleet.
+      </p>
+      {[identities.error, sites.error, mobile.error].filter(Boolean).map((error, index) => (
+        <p key={index} role="alert" className="page-error">
+          {error}
+        </p>
+      ))}
+      <label className="field">
+        Identity profile
+        <select className="input" name="identityProfile">
+          <option value="">Fresh identity</option>
+          {identities.data?.profiles.map((profile) => (
+            <option key={profile.name} value={profile.name}>
+              {profile.name} · revision {profile.revision}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        Site preferences
+        <select className="input" name="siteProfile">
+          <option value="">No site profile</option>
+          {sites.data?.profiles.map((profile) => (
+            <option key={profile.name} value={profile.name}>
+              {profile.name} · {profile.origin}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        Compatibility mode
+        <select className="input" name="compatibilityMode">
+          <option value="">Profile or server default</option>
+          <option value="native">Native browser</option>
+          <option value="compatible">Measured compatibility patches</option>
+          <option value="legacy">Legacy compatibility</option>
+        </select>
+      </label>
+      <label className="field">
+        Mobile fidelity profile
+        <select className="input" name="mobileProfile">
+          <option value="">Use device selection below</option>
+          {mobile.data?.profiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name || profile.id}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        Account network continuity
+        <select className="input" name="continuityPolicy">
+          <option value="warn">Report network drift</option>
+          <option value="require-confirmation">Require confirmation before changing network</option>
+        </select>
+      </label>
+      <label className="field">
+        Continuity confirmation token
+        <input
+          className="input"
+          name="continuityToken"
+          autoComplete="off"
+          placeholder="Only when confirming a reviewed network preview"
+        />
+      </label>
+      <button
+        type="button"
+        className="pill-button"
+        disabled={checking}
+        onClick={(event) => void previewNetwork(event.currentTarget)}
+      >
+        {checking ? "Checking route…" : "Preview account network continuity"}
+      </button>
+      {previewError && (
+        <p className="page-error" role="alert">
+          {previewError}
+        </p>
+      )}
+      {preview && (
+        <div className="work-result">
+          <p>
+            Continuity: <strong>{preview.status}</strong>
+          </p>
+          <details>
+            <summary>Observed route</summary>
+            <pre>{JSON.stringify(preview, null, 2)}</pre>
+          </details>
+          {preview.confirmationToken && (
+            <button
+              type="button"
+              className="pill-button"
+              onClick={(event) => {
+                const input = event.currentTarget
+                  .closest("form")
+                  ?.querySelector<HTMLInputElement>('input[name="continuityToken"]');
+                if (input) input.value = preview.confirmationToken;
+              }}
+            >
+              Accept this reviewed route for launch
+            </button>
+          )}
+        </div>
+      )}
+      <label className="field">
+        Network enforcement
+        <select className="input" name="egressPolicy">
+          <option value="standard">Standard</option>
+          <option value="strict">Require strict proxy enforcement</option>
+        </select>
+      </label>
+      <label className="field">
+        Budget site origin
+        <input className="input" name="siteScope" type="url" placeholder="https://example.com" />
+      </label>
+    </details>
   );
 }
 

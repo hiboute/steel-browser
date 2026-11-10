@@ -5,6 +5,8 @@ import { WebSocketServer } from "ws";
 import { WebSocketRegistryService } from "../../services/websocket-registry.service.js";
 import { WebSocketHandler, WebSocketHandlerContext } from "../../types/websocket.js";
 import { env } from "../../env.js";
+import { scopedCdpEndpoint } from "../../services/control/devtools.js";
+import { guardedCdp } from "../../services/control/socket.js";
 import { observeCdpActivity } from "../../services/session-activity.js";
 import { defaultHandlers } from "./handlers/index.js";
 
@@ -110,7 +112,41 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
         return;
       }
 
+      const resourceId = session?.id ?? fastify.sessionService?.activeSession.id;
+      let credential:
+        | import("../../services/control/ownership.js").ConnectionCredential
+        | undefined;
+      if (fastify.access && resourceId) {
+        const channel = scoped?.[2] === "cast" || pathname.endsWith("/cast") ? "cast" : "cdp";
+        try {
+          if (params.controlTicket)
+            credential = fastify.control.consumeTicket(params.controlTicket, resourceId, channel);
+          const actor = credential?.actor ?? fastify.access.authenticate(request);
+          fastify.access.assertRead(actor, resourceId);
+          const token = request.headers["x-steel-control"];
+          if (!credential && typeof token === "string") {
+            fastify.control.assert(resourceId, actor, token);
+            credential = {
+              sessionId: resourceId,
+              actor,
+              token,
+              generation: fastify.control.get(resourceId)!.generation,
+            };
+          }
+        } catch {
+          rejectUpgrade(socket, "403 Forbidden");
+          return;
+        }
+      }
+      const assertControl = () => {
+        if (fastify.control) {
+          if (!credential || credential.observer)
+            throw new Error("Current browser control is required");
+          fastify.control.assertConnection(credential);
+        }
+      };
       const context: WebSocketHandlerContext = {
+        assertControl,
         fastify,
         wss,
         params,
@@ -134,7 +170,17 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
         attachActivity();
         fastify.log.info({ sessionId }, "Connecting to session CDP...");
         try {
-          await context.cdpService.proxyWebSocket(request, socket, head);
+          if (fastify.control)
+            await guardedCdp(
+              request,
+              socket,
+              head,
+              wss,
+              await scopedCdpEndpoint(context.cdpService, params.pageId),
+              fastify.control,
+              credential,
+            );
+          else await context.cdpService.proxyWebSocket(request, socket, head);
         } catch (err) {
           fastify.log.error({ err }, "CDP WebSocket error");
           socket.destroy();
@@ -148,16 +194,30 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
 
       if (handler) {
         try {
+          const readOnlyHandler = ["cast", "logs", "recording", "pageId"].includes(
+            scoped?.[2] ?? pathname.split("/").pop() ?? "",
+          );
+          if (fastify.control && !readOnlyHandler) assertControl();
           await handler.handler(request, socket, head, context);
         } catch (err) {
-          fastify.log.error({ err }, `WebSocket handler error for ${url}`);
+          fastify.log.error({ err }, `WebSocket handler error for ${pathname}`);
           socket.destroy();
         }
       } else {
         attachActivity();
         fastify.log.info("Connecting to CDP...");
         try {
-          await context.cdpService.proxyWebSocket(request, socket, head);
+          if (fastify.control)
+            await guardedCdp(
+              request,
+              socket,
+              head,
+              wss,
+              context.cdpService.getWsEndpoint()!,
+              fastify.control,
+              credential,
+            );
+          else await context.cdpService.proxyWebSocket(request, socket, head);
         } catch (err) {
           fastify.log.error({ err }, "CDP WebSocket error");
           socket.destroy();

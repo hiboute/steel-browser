@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { AccessError } from "../../services/control/access.js";
 import { getErrors } from "../../utils/errors.js";
 import { CreateSessionRequest, SessionDetails, SessionStreamRequest } from "./sessions.schema.js";
 import { CookieData } from "../../services/context/types.js";
@@ -89,6 +90,16 @@ export const handleLaunchBrowserSession = async (
     }
 
     return await server.sessionService.startSession({
+      _principal: request.steelPrincipal,
+      identityProfile: request.body.identityProfile,
+      compatibilityMode: request.body.compatibilityMode,
+      siteProfile: request.body.siteProfile,
+      mobileProfile: request.body.mobileProfile,
+      continuityPolicy: request.body.continuityPolicy,
+      continuityToken: request.body.continuityToken,
+      frictionDetection: request.body.frictionDetection,
+      egressPolicy: request.body.egressPolicy,
+      siteScope: request.body.siteScope,
       name,
       labels,
       timeout,
@@ -141,6 +152,8 @@ export const handleLaunchBrowserSession = async (
           pool: { max: pool.maxSessions, live: pool.live, queued: pool.queued },
         });
     }
+    if (e instanceof AccessError)
+      return reply.code(e.statusCode).send({ success: false, code: e.code, message: e.message });
     if (e instanceof SessionStateError)
       return reply.code(e.statusCode).send({ success: false, code: e.code, message: e.message });
     if (e instanceof CookieSetDeniedError)
@@ -312,6 +325,7 @@ export const handleGetSessionStream = async (
 
   return reply.view("live-session-streamer.ejs", {
     wsUrl,
+    sessionId: session.id,
     showControls,
     theme,
     interactive,

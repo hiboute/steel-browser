@@ -44,15 +44,16 @@ export async function quickAction(
   if (heldByCommands(server, request, reply)) {
     return reply;
   }
-  if (!server.commandEngine || request.body?.proxyUrl) {
+  const engine = server.commandEngine;
+  if (!engine || request.body?.proxyUrl) {
     return run();
   }
-  const state = quickActionsOf(server.commandEngine);
+  const state = quickActionsOf(engine);
   state.running++;
   try {
     return await run();
   } finally {
-    server.commandEngine.pageChanged();
+    engine.pageChanged();
     state.running--;
     if (state.running === 0) {
       for (const resolve of state.idle.splice(0)) {

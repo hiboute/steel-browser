@@ -359,7 +359,7 @@ curl -X POST http://0.0.0.0:3000/v1/pdf \
 
 The `/sessions/{sessionId}/commands` endpoint drives the session's browser with high-level commands. It is built for AI agents: take a snapshot of the page, then act on elements by the refs in the snapshot. One request can run several commands and return the new page state.
 
-The commands API is experimental and off by default. Start the server with `ENABLE_COMMANDS_API=true` to turn it on.
+The commands API is available for every live Chromium session and requires verified ownership and a current control lease. See [browser work platform](docs/NEXT-PLATFORM.md) for authentication and handoff behavior.
 
 ```bash
 curl -X POST http://localhost:3000/v1/sessions/$SESSION_ID/commands \

@@ -1,3 +1,4 @@
+import type { Page } from "puppeteer-core";
 import { FastifyBaseLogger } from "fastify";
 import { mkdir, readFile, rm, writeFile, rename, cp, stat } from "fs/promises";
 import os from "os";
@@ -60,11 +61,13 @@ export class BrowserProfileInUseError extends Error {
 export class SessionPoolFullError extends Error {
   constructor(
     maxSessions: number,
-    public code: "pool_full" | "low_memory" = "pool_full",
+    public code: "pool_full" | "low_memory" | "client_budget" | "site_budget" = "pool_full",
   ) {
     super(
       code === "low_memory"
         ? "Available memory is below the configured reserve. Release a session or retry when memory pressure falls."
+        : code === "client_budget" || code === "site_budget"
+        ? `Browser admission is waiting for ${code.replace("_", " ")} capacity`
         : `All ${maxSessions} browser slot(s) are in use. Release a session (POST /v1/sessions/<id>/release) and retry.`,
     );
     this.name = "SessionPoolFullError";
@@ -94,6 +97,18 @@ const defaultSession = {
 };
 
 export interface StartSessionOptions {
+  /** Internal verified caller; never accepted from an HTTP request body. */
+  _principal?: import("./control/access.js").Actor;
+  privateCapture?: boolean;
+  identityProfile?: string;
+  compatibilityMode?: "native" | "compatible" | "legacy";
+  siteProfile?: string;
+  mobileProfile?: string;
+  continuityPolicy?: "warn" | "require-confirmation";
+  continuityToken?: string;
+  frictionDetection?: boolean;
+  egressPolicy?: "standard" | "strict";
+  siteScope?: string;
   sessionId?: string;
   name?: string;
   labels?: Record<string, string>;
@@ -160,7 +175,7 @@ export function redactProxyUrl(value?: string): string {
   }
 }
 
-interface ParkedSnapshot {
+export interface ParkedSnapshot {
   details: SessionDetails;
   options: StartSessionOptions;
   profile: string;
@@ -205,6 +220,9 @@ export class SessionService {
   /** Saved browser name -> the session holding it (one Chrome per profile). */
   private profileLocks = new Map<string, string>();
   private pathOwners = new Map<string, string>();
+  private checkpointLocks = new Map<string, Promise<void>>();
+  private admissionPaused = 0;
+  private launchPolicy?: (options: StartSessionOptions) => Promise<void> | void;
   private starts = new Map<string, Promise<SessionDetails>>();
   private endings = new Map<string, Promise<SessionDetails>>();
   private transitioning = new Map<string, Session>();
@@ -396,6 +414,12 @@ export class SessionService {
 
   public async startSession(options: StartSessionOptions): Promise<SessionDetails> {
     if (this.closing) throw new PoolClosedError();
+    if (this.admissionPaused)
+      throw new SessionStateError(
+        "admission_paused",
+        "Browser admission is paused for consistent backup",
+        503,
+      );
     const sessionId = options.sessionId ?? uuidv4();
     if (this.parked.has(sessionId) && !options._resuming)
       throw new SessionStateError("session_parked", "Session is parked; resume it instead");
@@ -485,6 +509,14 @@ export class SessionService {
       options.proxyUrl = resolved.proxyUrl;
       options.proxyLabel = resolved.proxyLabel;
     }
+    if (options.egressPolicy === "strict" && !this.launchPolicy)
+      throw new SessionStateError(
+        "strict_egress_unavailable",
+        "Strict egress requires an enforced network boundary",
+        409,
+      );
+    await this.launchPolicy?.(options);
+    await this.hooks.run("onAdmission", options);
     this.launchOptions.set(options.sessionId, { ...options, signal: undefined });
     const {
       proxyUrl,
@@ -544,7 +576,12 @@ export class SessionService {
       if (!slot)
         throw new SessionPoolFullError(
           this.browserPool.maxSessions,
-          this.browserPool.hasMemoryCapacity?.() === false ? "low_memory" : "pool_full",
+          this.browserPool.hasMemoryCapacity?.() === false
+            ? "low_memory"
+            : (this.browserPool.admissionReason?.(sessionId) as
+                | "client_budget"
+                | "site_budget"
+                | undefined) ?? "pool_full",
         );
     } catch (error) {
       this.unlockProfile(sessionId);
@@ -589,6 +626,7 @@ export class SessionService {
         name: options.name,
         labels: options.labels ?? {},
         client: options.client ?? "anonymous",
+        ownerId: options._principal?.id,
         timeout: options.timeout ?? env.SESSION_TIMEOUT_MS ?? 0,
         idleTimeout: options.idleTimeout ?? env.SESSION_IDLE_TIMEOUT_MS ?? 0,
         onExpire: options.onExpire ?? env.SESSION_EXPIRE_ACTION ?? "park",
@@ -681,6 +719,7 @@ export class SessionService {
       }
 
       const browserLauncherOptions: BrowserLauncherOptions = {
+        compatibilityMode: options.compatibilityMode,
         options: {
           headless: headless ?? env.CHROME_HEADLESS,
           proxyUrl: session.proxyServer?.url,
@@ -722,6 +761,8 @@ export class SessionService {
           deviceConfig,
         });
       } else {
+        if (options.privateCapture)
+          (cdpService.getInstrumentationLogger() as any).setPrivateCapture?.();
         await cdpService.startNewSession(browserLauncherOptions);
         if (browserProfile !== undefined && !fingerprint && !skipFingerprintInjection) {
           const generated = cdpService.getFingerprintData();
@@ -747,8 +788,7 @@ export class SessionService {
           debuggerUrl: getUrl("v1/devtools/inspector.html"),
           sessionViewerUrl: getBaseUrl(),
           userAgent:
-            cdpService.getUserAgent() ||
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            cdpService.getUserAgent() || (await cdpService.getBrowserInstance()?.userAgent()) || "",
           dimensions: cdpService.getDimensions(),
           deviceConfig,
         });
@@ -761,8 +801,11 @@ export class SessionService {
       const effective = this.launchOptions.get(sessionId)!;
       effective.timezone = await timezonePromise;
       effective.fingerprint = cdpService.getFingerprintData?.() ?? fingerprint;
-      effective.userAgent = session.userAgent;
+      // Native mode reports the browser's measured UA, but must not turn that
+      // observation into an override when this session is resumed or branched.
+      effective.userAgent = isSelenium ? session.userAgent : cdpService.getUserAgent();
       effective.dimensions = session.dimensions;
+      await this.hooks.run("onBrowserReady", session);
       if (options._resuming) {
         const snapshot = this.snapshots.get(sessionId)!;
         session.createdAt = snapshot.details.createdAt;
@@ -842,6 +885,10 @@ export class SessionService {
 
   /** Releases one session (default: the most recent live one). */
   public async endSession(sessionId?: string, reason: EndReason = "api"): Promise<SessionDetails> {
+    if (sessionId && this.checkpointLocks.has(sessionId)) {
+      await this.checkpointLocks.get(sessionId);
+      return this.endSession(sessionId, reason);
+    }
     const id = sessionId ?? this.activeSession.id;
     const starting = this.starts.get(id);
     if (starting) {
@@ -957,6 +1004,16 @@ export class SessionService {
   }
   public setParkGuard(check: (id: string) => boolean) {
     this.parkGuard = check;
+  }
+  public protectSession(id: string) {
+    this.thumbnails.delete(id);
+    const options = this.getLaunchOptions(id);
+    if (options) options.privateCapture = true;
+    const session = this.getSession(id);
+    if (session) (session.cdpService.getInstrumentationLogger() as any).setPrivateCapture?.();
+  }
+  public setLaunchPolicy(check: (options: StartSessionOptions) => Promise<void> | void) {
+    this.launchPolicy = check;
   }
   public setEgressResolver(resolve: NonNullable<SessionService["resolveEgress"]>) {
     this.resolveEgress = resolve;
@@ -1140,13 +1197,31 @@ export class SessionService {
   public async thumbnail(id: string): Promise<Buffer> {
     const session = this.getSession(id);
     if (!session) throw new SessionStateError("session_not_found", "Session not found", 404);
-    if (session.status === "parked") return readFile(this.store.path(`parked/${id}/thumbnail.jpg`));
+    const assertCaptureAllowed = () => {
+      if (this.getLaunchOptions(id)?.privateCapture) {
+        this.thumbnails.delete(id);
+        throw new SessionStateError(
+          "private_capture",
+          "Saved thumbnails are disabled after a vault fill",
+          409,
+        );
+      }
+    };
+    assertCaptureAllowed();
+    if (session.status === "parked") {
+      const data = await readFile(this.store.path(`parked/${id}/thumbnail.jpg`));
+      assertCaptureAllowed();
+      return data;
+    }
     const cached = this.thumbnails.get(id);
     if (cached && Date.now() - cached.at < 5000) return cached.data;
     const pages = await session.cdpService.getAllPages();
     const page = pages[0];
     if (!page) throw new SessionStateError("no_page", "Session has no page", 404);
+    assertCaptureAllowed();
     const data = Buffer.from(await page.screenshot({ type: "jpeg", quality: 60 }));
+    // A vault fill may begin while the browser is producing this screenshot.
+    assertCaptureAllowed();
     this.thumbnails.set(id, { at: Date.now(), data });
     return data;
   }
@@ -1156,6 +1231,10 @@ export class SessionService {
     reason: ParkReason = "manual",
     name?: string,
   ): Promise<SessionDetails> {
+    if (this.checkpointLocks.has(id)) {
+      await this.checkpointLocks.get(id);
+      return this.parkSession(id, reason, name);
+    }
     if (this.starts.has(id)) {
       await this.starts.get(id);
       return this.parkSession(id, reason, name);
@@ -1336,6 +1415,16 @@ export class SessionService {
     id: string,
     options: { queueTimeout?: number; signal?: AbortSignal } = {},
   ): Promise<SessionDetails> {
+    if (this.admissionPaused)
+      throw new SessionStateError(
+        "admission_paused",
+        "Browser admission is paused for consistent backup",
+        503,
+      );
+    if (this.checkpointLocks.has(id)) {
+      await this.checkpointLocks.get(id);
+      return this.resumeSession(id, options);
+    }
     if (this.sessions.has(id)) return this.sessions.get(id)!;
     const starting = this.starts.get(id);
     if (starting) return starting;
@@ -1354,6 +1443,89 @@ export class SessionService {
     });
   }
 
+  public async withAdmissionPaused<T>(action: () => Promise<T>): Promise<T> {
+    this.admissionPaused++;
+    try {
+      if (
+        this.starts.size ||
+        this.endings.size ||
+        this.sessions.size ||
+        this.browserPool.queuedCount ||
+        this.checkpointLocks.size
+      )
+        throw new SessionStateError(
+          "browsers_active",
+          "Park all sessions and finish queued work before exporting profiles",
+          409,
+        );
+      return await action();
+    } finally {
+      this.admissionPaused--;
+    }
+  }
+
+  /** Hold lifecycle transitions while copying a closed, consistent profile. */
+  public async withCheckpoint<T>(
+    id: string,
+    copy: (snapshot: ParkedSnapshot) => Promise<T>,
+  ): Promise<T> {
+    if (this.checkpointLocks.has(id))
+      throw new SessionStateError("checkpoint_busy", "A checkpoint is already being captured");
+    const priorStart = this.starts.get(id),
+      priorEnd = this.endings.get(id);
+    const barrier = Promise.withResolvers<void>();
+    this.checkpointLocks.set(id, barrier.promise);
+    let wasLive = false;
+    try {
+      await priorStart;
+      await priorEnd;
+      const session = this.getSession(id);
+      if (!session) throw new SessionStateError("session_not_found", "Session not found", 404);
+      wasLive = session.status === "live";
+      if (wasLive) {
+        if (session.isSelenium || this.parkGuard(id))
+          throw new SessionStateError(
+            "checkpoint_unavailable",
+            "Finish the handoff before checkpointing a CDP session",
+          );
+        await this.parkLiveSession(
+          session,
+          "manual",
+          undefined,
+          new AbortController().signal,
+          () => {},
+        );
+      }
+      const snapshot = this.snapshots.get(id);
+      if (!snapshot)
+        throw new SessionStateError("checkpoint_unavailable", "No consistent profile is available");
+      return await copy(structuredClone(snapshot));
+    } finally {
+      this.transitioning.delete(id);
+      this.checkpointLocks.delete(id);
+      barrier.resolve();
+      if (wasLive && this.parked.has(id) && !this.closing) await this.resumeSession(id);
+    }
+  }
+
+  /** Import a fully copied checkpoint as a new parked identity, then use normal restoration. */
+  public async importCheckpoint(snapshot: ParkedSnapshot): Promise<SessionDetails> {
+    const id = snapshot.details.id;
+    if (this.getSession(id) || this.starts.has(id))
+      throw new SessionStateError("session_exists", "Session already exists");
+    await this.store.write(`parked/${id}/meta.json`, snapshot);
+    const restored = {
+      ...snapshot.details,
+      cdpService: this.browserPool.primary.cdpService,
+      completion: Promise.resolve(),
+      complete: () => {},
+    } as Session;
+    this.snapshots.set(id, snapshot);
+    this.parked.set(id, restored);
+    this.pathOwners.set(path.resolve(snapshot.profile), id);
+    return this.resumeSession(id);
+  }
+
   private async restoreTabs(
     session: Session,
     snapshot: ParkedSnapshot,
@@ -1361,10 +1533,12 @@ export class SessionService {
   ): Promise<void> {
     const existing = await session.cdpService.getAllPages();
     let active = existing[0];
+    const restored = new Set<Page>();
     for (const [index, tab] of snapshot.tabs.entries()) {
       // Do not reopen privileged or executable URLs from untrusted page state.
       if (!/^https?:\/\//i.test(tab.url) && tab.url !== "about:blank") continue;
-      const page = index === 0 && existing[0] ? existing[0] : await session.cdpService.createPage();
+      const page = existing[index] ?? (await session.cdpService.createPage());
+      restored.add(page);
       let storageScript: string | undefined;
       if (restoreStorage && /^https?:\/\//i.test(tab.url)) {
         const origin = new URL(tab.url).origin;
@@ -1394,6 +1568,8 @@ export class SessionService {
         .catch(() => undefined);
       if (tab.active) active = page;
     }
+    if (restored.size)
+      for (const page of existing) if (!restored.has(page)) await page.close().catch(() => {});
     await active?.bringToFront();
   }
 

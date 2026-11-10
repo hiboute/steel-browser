@@ -2,7 +2,7 @@
 
 The commands API drives the session's browser with high-level actions. It is built for AI agents: take a snapshot of the page, pick an element by its ref, and act on it. The engine runs inside steel-browser next to Chrome, so one HTTP request can run several commands and return the new page state.
 
-The API is experimental and off by default. Start the server with `ENABLE_COMMANDS_API=true` to turn it on. When it is off, the routes below do not exist and the server behaves as if the engine were not there.
+The scoped commands API is available for every live Chromium session. Requests require the browser owner's authenticated principal and a current control lease; see [NEXT-PLATFORM.md](NEXT-PLATFORM.md). The legacy `ENABLE_COMMANDS_API` setting is retained for configuration compatibility and no longer controls registration.
 
 ## Endpoints
 

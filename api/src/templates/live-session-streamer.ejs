@@ -534,6 +534,19 @@
 
           // WebSocket connection management
           const baseWsUrl = '<%= wsUrl %>';
+          const controlSessionId = '<%= sessionId %>';
+          let controlToken = null;
+          let controlRevision = 0;
+          window.addEventListener('message', (event) => {
+                  if (event.source !== window.parent || event.origin !== window.location.origin) return;
+              if (event.source !== window.parent || event.origin !== window.location.origin ||
+                  event.data?.type !== 'steel-control' || event.data.sessionId !== controlSessionId ||
+                  !(event.data.token === null || typeof event.data.token === 'string')) return;
+              controlToken = event.data.token;
+              controlRevision++;
+              for (const tab of Object.values(tabs)) { tab.reconnecting = false; tab.websocket?.close(); }
+              setTimeout(() => { connectTabWebSocket('tab-discovery'); if (activeTabId) connectTabWebSocket(activeTabId); }, 0);
+          });
           let tabDiscoveryWebSocket = null; // WebSocket for discovering tabs (multi-page mode)
           let activeConnectionRetries = {}; // Track reconnection attempts
           let tabDiscoveryRetries = 0;
@@ -562,17 +575,23 @@
           }
 
           // Function to create WebSocket URL for a specific page
-          function createWebSocketUrl(pageId) {
-              // For single-page mode, the URL already includes the pageId
-              if (singlePageMode) return `${baseWsUrl}${baseWsUrl.includes('?') ? '&' : '?'}format=binary`;
-
-              // For tab discovery, add tabInfo parameter
-              if (pageId === 'tab-discovery') {
-                  return `${baseWsUrl}?tabInfo=true`;
+          async function createWebSocketUrl(pageId) {
+              const url = new URL(baseWsUrl, window.location.href);
+              if (!singlePageMode) {
+                  if (pageId === 'tab-discovery') url.searchParams.set('tabInfo', 'true');
+                  else url.searchParams.set('pageId', pageId);
               }
-
-              // Regular tab connection
-              return `${baseWsUrl}?pageId=${encodeURIComponent(pageId)}&format=binary`;
+              if (pageId !== 'tab-discovery') url.searchParams.set('format', 'binary');
+              if (controlToken) {
+                  const response = await fetch(`/v1/sessions/${encodeURIComponent(controlSessionId)}/control/ticket`, {
+                      method: 'POST', credentials: 'same-origin',
+                      headers: {'Content-Type': 'application/json', 'X-Steel-Control': controlToken},
+                      body: JSON.stringify({channel:'cast'})
+                  });
+                  if (!response.ok) { controlToken = null; throw new Error('Control lease is no longer valid'); }
+                  url.searchParams.set('controlTicket', (await response.json()).ticket);
+              }
+              return url.toString();
           }
 
           function reconnectTabDiscovery() {
@@ -586,7 +605,7 @@
           }
 
           // Function to establish WebSocket connection for a tab
-          function connectTabWebSocket(pageId) {
+          async function connectTabWebSocket(pageId) {
               // Prevent reconnection if already in progress
               if (tabs[pageId] && tabs[pageId].reconnecting) {
                   console.log(`Reconnection for tab ${pageId} already in progress, ignoring duplicate request`);
@@ -619,7 +638,12 @@
               }
 
               // Create a new WebSocket for this tab
-              const ws = new WebSocket(createWebSocketUrl(pageId));
+              const revision = controlRevision;
+              let socketUrl;
+              try { socketUrl = await createWebSocketUrl(pageId); }
+              catch { if (tabs[pageId]) tabs[pageId].reconnecting = false; reconnectTabDiscovery(); return; }
+              if (revision !== controlRevision) { if (tabs[pageId]) tabs[pageId].reconnecting = false; return; }
+              const ws = new WebSocket(socketUrl);
               console.log(`Connecting websocket for tab ${pageId}`);
 
               if (tabs[pageId]) {
@@ -1630,6 +1654,7 @@
 
               // Handle messages from parent window
               window.addEventListener('message', (event) => {
+                  if (event.source !== window.parent || event.origin !== window.location.origin) return;
                   switch (event.data.type) {
                       case 'triggerCopy':
                           handleCopyEvent();
@@ -1769,8 +1794,8 @@
           })();
 
           const originalConnectTabWebSocket = connectTabWebSocket;
-          connectTabWebSocket = function(pageId) {
-              const ws = originalConnectTabWebSocket(pageId);
+          connectTabWebSocket = async function(pageId) {
+              const ws = await originalConnectTabWebSocket(pageId);
               if (!ws) return ws;
 
               const originalOnMessage = ws.onmessage;

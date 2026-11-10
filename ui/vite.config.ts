@@ -5,6 +5,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
+      "/v1": {
+        target: process.env.STEEL_DEV_API_URL || "http://localhost:3000",
+        changeOrigin: true,
+        ws: true,
+      },
       "/api": {
         target: process.env.STEEL_DEV_API_URL || "http://localhost:3000",
         changeOrigin: true,

@@ -7,6 +7,7 @@ import type { SessionService, Session, StartSessionOptions } from "./session.ser
 import { extrasConfig } from "./extras.config.js";
 import { validateExtractedData } from "./extract-validation.js";
 import { assertAllowedUrl, withNavigationPolicy } from "./navigation-policy.js";
+import { captureSource, groundFields } from "./data/grounding.js";
 
 export class ExtrasError extends Error {
   constructor(
@@ -27,16 +28,10 @@ export async function waitForExtraction(page: Page, waitFor?: number | string) {
 }
 
 export async function readablePage(page: Page, maxChars = extrasConfig.EXTRACT_MAX_CHARS) {
-  // Capture source and content in one page turn: a concurrent navigation must
-  // not attach a permitted old URL to a new private page's contents.
-  const { url, title, html } = await page.evaluate(() => ({
-    url: location.href,
-    title: document.title,
-    html: document.documentElement.outerHTML,
-  }));
-  const content = await getDefuddleContent(html, url);
+  const source = await captureSource(page, maxChars);
+  const content = await getDefuddleContent(source.html, source.url);
   const markdown = (content.contentMarkdown || content.content || "").slice(0, maxChars);
-  return { url, title, markdown };
+  return { ...source, markdown };
 }
 
 export interface ExtractConfig {
@@ -239,20 +234,36 @@ export class ExtractService {
         // Reading an existing browser must not change the user's networking or
         // inject a persistent CSP into its already loaded page.
         await waitForExtraction(page, input.waitFor);
-        const { url, title, markdown } = await readablePage(page, this.config.maxChars);
+        const source = await readablePage(page, this.config.maxChars);
+        const { url, title, markdown } = source;
         await assertAllowedUrl(url);
         const result = await this.fromText(markdown, input.schema, input.prompt, signal);
-        return { ...result, url, title, ...(input.includeMarkdown ? { markdown } : {}) };
+        return {
+          ...result,
+          url,
+          title,
+          observedAt: source.observedAt,
+          evidence: groundFields(result.data, { ...source, text: markdown }, input.schema),
+          ...(input.includeMarkdown ? { markdown } : {}),
+        };
       }
       return await withNavigationPolicy(page, async (policy) => {
         await policy.assertUrl(input.url ?? page.url());
         if (input.url)
           await safeGoto(page, input.url, { timeout: 30000, waitUntil: "domcontentloaded" });
         await waitForExtraction(page, input.waitFor);
-        const { url, title, markdown } = await readablePage(page, this.config.maxChars);
+        const source = await readablePage(page, this.config.maxChars);
+        const { url, title, markdown } = source;
         policy.throwIfBlocked();
         const result = await this.fromText(markdown, input.schema, input.prompt, signal);
-        return { ...result, url, title, ...(input.includeMarkdown ? { markdown } : {}) };
+        return {
+          ...result,
+          url,
+          title,
+          observedAt: source.observedAt,
+          evidence: groundFields(result.data, { ...source, text: markdown }, input.schema),
+          ...(input.includeMarkdown ? { markdown } : {}),
+        };
       });
     } finally {
       releaseActivity?.();

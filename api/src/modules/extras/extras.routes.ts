@@ -3,6 +3,7 @@ import fastifyMultipart from "@fastify/multipart";
 import { z } from "zod";
 import { buildJsonSchemas } from "../../utils/schema.js";
 import { ExtrasError } from "../../services/extract.service.js";
+import { sanitized, type DataActor } from "../../services/data/common.js";
 import { NavigationPolicyError } from "../../services/navigation-policy.js";
 import { extrasConfig } from "../../services/extras.config.js";
 import { SessionPoolFullError } from "../../services/session.service.js";
@@ -98,13 +99,46 @@ export default async function extrasRoutes(server: FastifyInstance) {
       };
       reply.raw.once("close", closed);
       try {
-        return await execute(reply, () =>
-          server.extractService.extract(
-            ExtractRequest.parse(request.body),
-            request.steelClient,
+        return await execute(reply, async () => {
+          const input = ExtractRequest.parse(request.body);
+          const access = (
+            server as unknown as {
+              access?: {
+                actor(request: FastifyRequest): DataActor;
+                authorizeSession(request: FastifyRequest, id: string): DataActor;
+              };
+            }
+          ).access;
+          const actor = access?.actor(request);
+          if (input.sessionId) access?.authorizeSession(request, input.sessionId);
+          const result = await server.extractService.extract(
+            input,
+            actor?.id ?? request.steelClient,
             abort.signal,
-          ),
-        );
+          );
+          if (actor && server.hasDecorator("dataRecords")) {
+            const record = await server.dataRecords.create(
+              "extract",
+              actor.id,
+              sanitized(result) as object,
+              input.sessionId,
+            );
+            await server.sessionSearch.index({
+              sourceId: record.id,
+              owner: actor.id,
+              sessionId: input.sessionId,
+              title: result.title,
+              text: JSON.stringify(sanitized(result.data)),
+              kind: "extract",
+              href: input.sessionId
+                ? `/?session=${encodeURIComponent(input.sessionId)}&view=data`
+                : "/?view=automation",
+              expiresAt: record.expiresAt,
+            });
+            return { ...result, extractionId: record.id };
+          }
+          return result;
+        });
       } finally {
         reply.raw.off("close", closed);
       }
@@ -138,6 +172,7 @@ export default async function extrasRoutes(server: FastifyInstance) {
           name,
           WarmSettings.parse(request.body),
           request.steelClient,
+          request.steelPrincipal,
         );
         await server.audit.log("warm.updated", { client: request.steelClient, subject: name });
         return result;
@@ -200,6 +235,7 @@ export default async function extrasRoutes(server: FastifyInstance) {
         const watcher = await server.watcherService.create(
           WatcherSettings.parse(request.body),
           request.steelClient,
+          request.steelPrincipal,
         );
         await server.audit.log("watcher.created", {
           client: request.steelClient,

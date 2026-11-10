@@ -112,6 +112,50 @@ export function Rail({
       </div>
       <nav className="rail-nav" aria-label="Main">
         <div className="rail-group">
+          <p className="rail-group-title">Work</p>
+          <div className="rail-items">
+            {(
+              [
+                "inbox",
+                "automation",
+                "recovery",
+                "identity",
+                "data",
+                "fleet",
+                "platform",
+              ] as WorkspaceView[]
+            ).map((key) => (
+              <a
+                key={key}
+                className="rail-item"
+                href={`?view=${key}`}
+                aria-current={view === key ? "page" : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onView(key);
+                }}
+              >
+                <span className="nav-symbol" aria-hidden="true">
+                  {
+                    (
+                      {
+                        inbox: "▣",
+                        automation: "▷",
+                        recovery: "↺",
+                        identity: "◈",
+                        data: "▤",
+                        fleet: "⊞",
+                        platform: "⚙",
+                      } as Record<string, string>
+                    )[key]
+                  }
+                </span>
+                <span className="rail-item-label">{viewNames[key]}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+        <div className="rail-group">
           <p className="rail-group-title">Browsers</p>
           <div className="rail-items">
             <a

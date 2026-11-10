@@ -59,6 +59,7 @@ function makePage(url = "about:blank", active = true, scrollY = 0) {
     }),
     bringToFront: vi.fn().mockResolvedValue(undefined),
     screenshot: vi.fn().mockResolvedValue(Buffer.from("jpeg-thumbnail")),
+    close: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -72,6 +73,7 @@ function makeCdp(primary: boolean) {
     getDimensions: () => cdp.dimensions,
     getFingerprintData: () => identity,
     getCookies: vi.fn().mockResolvedValue(cookies),
+    getInstrumentationLogger: () => ({ setPrivateCapture: vi.fn() }),
     getAllPages: vi.fn(async () => cdp.pages),
     setDisconnectHandler: vi.fn(),
     startNewSession: vi.fn().mockImplementation(async (options) => {
@@ -158,6 +160,70 @@ async function parkedSession(fixture: Awaited<ReturnType<typeof setup>>, id = "p
 }
 
 describe("durable session parking", () => {
+  it("reports the native browser UA without persisting it as a resume override", async () => {
+    const { service, browsers } = await setup();
+    const measured = "Mozilla/5.0 Chrome/156.0.8103.39 Safari/537.36";
+    for (const browser of browsers) {
+      vi.spyOn(browser, "getUserAgent").mockReturnValue(undefined as never);
+      vi.spyOn(browser, "getFingerprintData").mockReturnValue(undefined as never);
+      Object.assign(browser, {
+        getBrowserInstance: () => ({ userAgent: async () => measured }),
+      });
+    }
+    const created = await service.startSession({
+      sessionId: "native-session",
+      credentials: {},
+      compatibilityMode: "native",
+      skipFingerprintInjection: true,
+    });
+    expect(created.userAgent).toBe(measured);
+    expect(service.getLaunchOptions(created.id)?.userAgent).toBeUndefined();
+    await service.parkSession(created.id);
+    const resumed = await service.resumeSession(created.id);
+    expect(resumed.userAgent).toBe(measured);
+    expect(browsers[0].startNewSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ userAgent: undefined, skipFingerprintInjection: true }),
+    );
+  });
+
+  it("does not reuse or save thumbnails after private capture, including after resume", async () => {
+    const fixture = await setup();
+    const { service, browsers, store } = fixture;
+    const id = "private-thumbnail";
+    await service.startSession({ sessionId: id, credentials: {}, timezone: "Europe/Paris" });
+    const page = browsers[0].pages[0];
+    expect(await service.thumbnail(id)).toEqual(Buffer.from("jpeg-thumbnail"));
+    page.screenshot.mockClear();
+    service.protectSession(id);
+    await expect(service.thumbnail(id)).rejects.toMatchObject({ code: "private_capture" });
+    await service.parkSession(id);
+    expect(page.screenshot).not.toHaveBeenCalled();
+    expect(await exists(store.path(`parked/${id}/thumbnail.jpg`))).toBe(false);
+    expect(await store.read(`parked/${id}/meta.json`)).toMatchObject({
+      options: { privateCapture: true },
+    });
+    await service.resumeSession(id);
+    await expect(service.thumbnail(id)).rejects.toMatchObject({ code: "private_capture" });
+  });
+  it("discards a thumbnail that finishes after private capture begins", async () => {
+    const { service, browsers } = await setup();
+    const id = "private-thumbnail-race";
+    await service.startSession({ sessionId: id, credentials: {}, timezone: "Europe/Paris" });
+    let finish!: (value: Buffer) => void;
+    browsers[0].pages[0].screenshot.mockImplementationOnce(
+      () =>
+        new Promise<Buffer>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = service.thumbnail(id);
+    const rejected = expect(pending).rejects.toMatchObject({ code: "private_capture" });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    service.protectSession(id);
+    finish(Buffer.from("sensitive screenshot"));
+    await rejected;
+    await expect(service.thumbnail(id)).rejects.toMatchObject({ code: "private_capture" });
+  });
   it("persists encrypted cookies, tabs, launch identity, and profile data across a restart", async () => {
     const fixture = await setup();
     const { service, browsers, store } = fixture;
@@ -432,4 +498,24 @@ describe("durable session parking", () => {
       "Could not park session on shutdown",
     );
   }, 3000);
+});
+
+it("reuses restored Chrome tabs and closes surplus startup tabs rather than duplicating on every resume", async () => {
+  const fixture = await setup();
+  const { service, browsers } = fixture;
+  const { id } = await parkedSession(fixture);
+  const existing = [
+    makePage("https://example.test/old-one"),
+    makePage("https://example.test/old-two"),
+    makePage("about:blank"),
+  ];
+  browsers[0].startNewSession.mockImplementationOnce(async () => {
+    browsers[0].pages = existing;
+    browsers[0].running = true;
+  });
+  await service.resumeSession(id);
+  expect(browsers[0].createPage).not.toHaveBeenCalled();
+  expect(existing[0].url()).toBe("https://example.test/one");
+  expect(existing[1].url()).toBe("https://example.test/two");
+  expect(existing[2].close).toHaveBeenCalledOnce();
 });

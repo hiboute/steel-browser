@@ -1,3 +1,4 @@
+import type { Actor } from "./control/access.js";
 import { v5 as uuidv5 } from "uuid";
 import type { FastifyBaseLogger } from "fastify";
 import { WarmSettings, type WarmInput, type WarmRecord } from "../modules/extras/extras.schema.js";
@@ -33,6 +34,8 @@ export class WarmService {
         ...settings,
         name: record.name,
         client: record.client,
+        ownerId: record.ownerId,
+        ownerAuthenticated: record.ownerAuthenticated,
         sessionId: warmSessionId(record.name),
         status: settings.enabled ? "waiting" : "disabled",
       });
@@ -53,7 +56,12 @@ export class WarmService {
     return [...this.records.values()].map((record) => ({ ...record }));
   }
 
-  async put(name: string, input: WarmInput, client = "anonymous"): Promise<WarmRecord> {
+  async put(
+    name: string,
+    input: WarmInput,
+    client = "anonymous",
+    actor?: Actor,
+  ): Promise<WarmRecord> {
     await this.serial(async () => {
       const enabled = [...this.records.values()].filter((r) => r.name !== name && r.enabled).length;
       if (input.enabled && enabled >= Math.max(0, this.sessions.maxSessions - 1)) {
@@ -69,6 +77,8 @@ export class WarmService {
         ...input,
         name,
         client: previous?.client ?? client,
+        ownerId: previous?.ownerId ?? actor?.id,
+        ownerAuthenticated: previous?.ownerAuthenticated ?? actor?.authenticated,
         sessionId: warmSessionId(name),
         status: input.enabled ? "waiting" : "disabled",
       });
@@ -143,6 +153,13 @@ export class WarmService {
               egress: record.egress,
               extensions: record.extensions,
               client: record.client ?? "anonymous",
+              _principal: record.ownerId
+                ? {
+                    id: record.ownerId,
+                    role: "agent",
+                    authenticated: record.ownerAuthenticated ?? false,
+                  }
+                : undefined,
             } as StartSessionOptions);
           }
           const session = this.sessions.getSession(record.sessionId);

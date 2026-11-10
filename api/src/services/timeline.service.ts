@@ -1,3 +1,4 @@
+import { isSensitiveSession, redactKnownSecrets } from "./data/privacy.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "./session.service.js";
@@ -72,31 +73,55 @@ export class TimelineService {
       .then(async () => {
         const entries = await this.deps.store.readLines<TimelineEntry>(filename);
         const entry: TimelineEntry = {
-          ...input,
-          args: redactArguments(input.args),
+          ...redactKnownSecrets(input),
+          ...(isSensitiveSession(id)
+            ? {
+                url: undefined,
+                title: undefined,
+                error: input.error ? "[private capture]" : undefined,
+              }
+            : {}),
+          args: isSensitiveSession(id)
+            ? { redacted: true }
+            : redactKnownSecrets(redactArguments(input.args)),
           seq: (entries.at(-1)?.seq ?? 0) + 1,
           at: new Date().toISOString(),
           client,
           kind: input.kind ?? "action",
           screenshot: false,
         };
-        if (input.screenshot) {
+        if (input.screenshot && !isSensitiveSession(id)) {
           const session = this.deps.getSession(id);
           if (session?.status === "live" && !session.isSelenium) {
             try {
               const page = await activePage(session);
               if (page) {
                 const image = await screenshot(page);
-                const target = this.deps.store.path(`timeline/${id}/${entry.seq}.jpg`);
-                await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-                await writeFile(target, image, { mode: 0o600 });
-                entry.screenshot = true;
-                entry.url ??= page.url();
-                entry.title ??= await page.title();
+                if (!isSensitiveSession(id)) {
+                  const target = this.deps.store.path(`timeline/${id}/${entry.seq}.jpg`);
+                  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+                  await writeFile(target, image, { mode: 0o600 });
+                  entry.screenshot = true;
+                  entry.url ??= page.url();
+                  entry.title ??= await page.title();
+                }
               }
             } catch (error) {
-              this.deps.log(error);
+              this.deps.log(
+                isSensitiveSession(id) ? new Error("Private screenshot unavailable") : error,
+              );
             }
+          }
+        }
+        // Privacy can change while a screenshot or page metadata read is pending.
+        if (isSensitiveSession(id)) {
+          entry.args = { redacted: true };
+          entry.url = undefined;
+          entry.title = undefined;
+          entry.error = input.error ? "[private capture]" : undefined;
+          if (entry.screenshot) {
+            await rm(this.deps.store.path(`timeline/${id}/${entry.seq}.jpg`), { force: true });
+            entry.screenshot = false;
           }
         }
         entries.push(entry);

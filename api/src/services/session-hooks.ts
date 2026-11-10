@@ -5,6 +5,8 @@ export type EndReason = "api" | "idle" | "timeout" | "disconnected" | "parked_ex
 export type ParkReason = "manual" | "idle" | "timeout" | "preempted" | "shutdown";
 export interface SessionHooks {
   onStarting?(options: StartSessionOptions): void | Promise<void>;
+  onAdmission?(options: StartSessionOptions): void | Promise<void>;
+  onBrowserReady?(session: Session): void | Promise<void>;
   onStarted?(session: Session): void | Promise<void>;
   onEnding?(
     session: Session,
@@ -43,7 +45,7 @@ export class SessionHookRegistry {
           }),
         ]);
       } catch (error) {
-        if (name === "onStarting") throw error;
+        if (["onStarting", "onAdmission", "onBrowserReady"].includes(name)) throw error;
         this.logger.error({ err: error, hook: name }, "Session lifecycle hook failed");
       } finally {
         clearTimeout(timer);

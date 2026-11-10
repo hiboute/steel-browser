@@ -31,6 +31,21 @@ export const ExtractResponse = z.object({
   model: z.string(),
   usage: z.record(z.string(), z.unknown()).optional(),
   markdown: z.string().optional(),
+  extractionId: z.string().optional(),
+  observedAt: z.string().optional(),
+  evidence: z
+    .array(
+      z.object({
+        path: z.string(),
+        status: z.enum(["grounded", "uncertain", "missing"]),
+        url: z.string(),
+        observedAt: z.string(),
+        excerpt: z.string().optional(),
+        selector: z.string().optional(),
+        reason: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 export const WarmSettings = z
   .object({
@@ -46,6 +61,8 @@ export type WarmInput = z.infer<typeof WarmSettings>;
 export const WarmDetails = WarmSettings.extend({
   name: ExtensionName,
   client: z.string().max(128).optional(),
+  ownerId: z.string().max(128).optional(),
+  ownerAuthenticated: z.boolean().optional(),
   sessionId: z.string().uuid(),
   status: z.enum(["disabled", "waiting", "starting", "live", "error"]),
   lastStartedAt: z.string().optional(),
@@ -81,6 +98,15 @@ export const WatcherSettings = z
           .optional(),
       })
       .default({}),
+    pageDiff: z
+      .object({
+        selector: z.string().max(500).optional(),
+        ignoreSelectors: z.array(z.string().max(500)).max(30).optional(),
+        ignorePatterns: z.array(z.string().min(1).max(200)).max(30).optional(),
+        visual: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     condition: z
       .object({
         type: z.enum(["changed", "contains", "not_contains", "matches", "lt", "gt", "eq"]),
@@ -108,6 +134,7 @@ export const WatcherPatch = z
     activeHours: WatcherSettings.shape.activeHours,
     waitFor: WatcherSettings.shape.waitFor,
     extract: WatcherSettings.shape.extract.removeDefault().partial().optional(),
+    pageDiff: WatcherSettings.shape.pageDiff,
     condition: WatcherSettings.shape.condition.removeDefault().partial().optional(),
     notify: z
       .object({
@@ -123,6 +150,8 @@ export const WatcherRun = z.object({
   status: z.enum(["ok", "error", "postponed"]),
   value: z.unknown().optional(),
   matched: z.boolean().optional(),
+  snapshotId: z.string().optional(),
+  diff: z.unknown().optional(),
   error: z.string().optional(),
   code: z.string().optional(),
   statusCode: z.number().int().min(400).max(599).optional(),
@@ -132,12 +161,15 @@ export type WatcherRunDetails = z.infer<typeof WatcherRun>;
 export const WatcherDetails = WatcherSettings.extend({
   id: z.string().uuid(),
   client: z.string().max(128).optional(),
+  ownerId: z.string().max(128).optional(),
+  ownerAuthenticated: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   state: z.object({
     lastRunAt: z.string().optional(),
     nextRunAt: z.string(),
     lastValue: z.unknown().optional(),
+    lastSnapshotId: z.string().optional(),
     consecutiveErrors: z.number().int(),
     lastNotifiedAt: z.string().optional(),
     lastErrorNotifiedAt: z.string().optional(),

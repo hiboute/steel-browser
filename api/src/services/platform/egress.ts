@@ -74,6 +74,34 @@ export class EgressService {
       checkedAt: null,
     };
   }
+  /** Fresh observation of an already resolved upstream; never picks a different VPN server. */
+  async checkResolved(name: string, proxyUrl?: string): Promise<EgressSummary> {
+    const summary = this.describe(name);
+    try {
+      const agent = proxyUrl
+        ? /^socks/.test(proxyUrl)
+          ? new SocksProxyAgent(proxyUrl)
+          : new HttpsProxyAgent(proxyUrl)
+        : undefined;
+      const response = await axios.get<string>("https://www.cloudflare.com/cdn-cgi/trace", {
+        timeout: 5000,
+        proxy: false,
+        httpsAgent: agent,
+        responseType: "text",
+        maxRedirects: 0,
+        maxContentLength: 65536,
+      });
+      const trace = Object.fromEntries(response.data.split("\n").map((line) => line.split("=", 2)));
+      summary.healthy = !!trace.ip;
+      summary.publicIp = trace.ip || null;
+      summary.country = trace.loc || null;
+    } catch {
+      summary.healthy = false;
+    }
+    summary.checkedAt = new Date().toISOString();
+    return summary;
+  }
+
   async check(name: string): Promise<EgressSummary> {
     this.assertName(name);
     const cached = this.health.get(name);

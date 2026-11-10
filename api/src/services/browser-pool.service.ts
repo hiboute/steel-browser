@@ -16,7 +16,15 @@ export class PoolClosedError extends Error {
   }
 }
 
+export interface PoolSchedulingPolicy {
+  metadata(id: string): { principal: string; weight: number };
+  canAcquire(id: string): boolean;
+  acquired(id: string): void;
+  release(id: string): void;
+  reason?(id: string): string | undefined;
+}
 interface SlotRequest {
+  fairFinish: number;
   sessionId: string;
   primaryOnly: boolean;
   background: boolean;
@@ -39,6 +47,15 @@ export class BrowserPool {
   private closed = false;
   private admission: () => boolean = () => true;
   private retryTimer?: NodeJS.Timeout;
+  private scheduling?: PoolSchedulingPolicy;
+  private virtualTime = 0;
+  private clientFinish = new Map<string, number>();
+  setSchedulingPolicy(policy: PoolSchedulingPolicy) {
+    this.scheduling = policy;
+  }
+  admissionReason(id: string) {
+    return this.scheduling?.reason?.(id);
+  }
 
   setAdmissionGuard(check: () => boolean) {
     this.admission = check;
@@ -101,6 +118,7 @@ export class BrowserPool {
   private takeSlot(sessionId: string, primaryOnly: boolean, background = false): PoolSlot | null {
     if (
       !this.admission() ||
+      this.scheduling?.canAcquire(sessionId) === false ||
       (background &&
         (this.waiters.length > 0 || this.slots.filter((s) => s.state === "free").length <= 1))
     )
@@ -111,6 +129,7 @@ export class BrowserPool {
       this.logger.warn(`[BrowserPool] No free slot for session ${sessionId}`);
       return null;
     }
+    this.scheduling?.acquired(sessionId);
     slot.sessionId = sessionId;
     slot.state = "starting";
     this.logger.info(
@@ -137,7 +156,13 @@ export class BrowserPool {
       let finished = false;
       const onAbort = () =>
         request.finish(null, new DOMException("Request cancelled", "AbortError"));
+      const meta = this.scheduling?.metadata(sessionId);
+      const fairFinish = meta
+        ? Math.max(this.virtualTime, this.clientFinish.get(meta.principal) ?? 0) + 1 / meta.weight
+        : this.waiters.length;
+      if (meta) this.clientFinish.set(meta.principal, fairFinish);
       const request: SlotRequest = {
+        fairFinish,
         sessionId,
         primaryOnly: options.primaryOnly ?? false,
         background: options.background ?? false,
@@ -172,10 +197,21 @@ export class BrowserPool {
 
   private drain(): void {
     if (this.closed) return;
-    const first = this.waiters[0];
+    const first = this.scheduling
+      ? [...this.waiters]
+          .sort((a, b) => a.fairFinish - b.fairFinish || a.enqueuedAt - b.enqueuedAt)
+          .find(
+            (r) =>
+              this.scheduling!.canAcquire(r.sessionId) &&
+              (!r.primaryOnly || this.primary.state === "free"),
+          )
+      : this.waiters[0];
     if (!first) return;
     const slot = this.takeSlot(first.sessionId, first.primaryOnly, first.background);
-    if (slot) first.finish(slot);
+    if (slot) {
+      this.virtualTime = Math.max(this.virtualTime, first.fairFinish);
+      first.finish(slot);
+    }
   }
 
   markLive(sessionId: string): void {
@@ -218,6 +254,7 @@ export class BrowserPool {
     const slot = this.getSlot(sessionId);
     if (slot) {
       this.logger.info(`[BrowserPool] Slot ${slot.index} released by session ${sessionId}`);
+      this.scheduling?.release(sessionId);
       slot.sessionId = null;
       slot.state = "free";
       this.drain();

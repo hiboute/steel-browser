@@ -2,7 +2,6 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { $ref } from "../../plugins/schemas.js";
 import cdpSchemas from "./cdp.schemas.js";
-import { buildDevtoolsFrontendUrl } from "../../utils/url.js";
 
 async function routes(server: FastifyInstance) {
   server.get(
@@ -20,12 +19,11 @@ async function routes(server: FastifyInstance) {
       request: FastifyRequest<{ Querystring: z.infer<typeof cdpSchemas.GetDevtoolsUrlSchema> }>,
       reply: FastifyReply,
     ) => {
-      return reply.redirect(
-        buildDevtoolsFrontendUrl(
-          server.cdpService.getDebuggerUrl(),
-          server.cdpService.getDebuggerWsUrl(request.query.pageId),
-        ),
-      );
+      // The legacy raw-browser DevTools URL bypasses per-session control fencing.
+      // Interactive inspection uses the authenticated scoped viewer instead.
+      const session = server.sessionService.activeSession;
+      server.access?.authorizeSession(request, session.id);
+      return reply.redirect(`/v1/sessions/${encodeURIComponent(session.id)}/debug`);
     },
   );
 }

@@ -11,6 +11,8 @@ export class NavigationPolicyError extends Error {
   }
 }
 export interface NavigationPolicyOptions {
+  /** Restrict isolated regression runs to explicitly owned fixture origins. */
+  allowedOrigins?: string[];
   /** Explicit operator opt-in. URL schemes and credentials remain restricted. */
   allowPrivateNetworks?: boolean;
   /** Injectable resolver for deterministic policy tests. Every request resolves afresh. */
@@ -129,6 +131,10 @@ export async function assertAllowedUrl(
     throw new NavigationPolicyError("Only HTTP and HTTPS navigation is allowed");
   if (url.username || url.password)
     throw new NavigationPolicyError("URLs containing credentials are not allowed");
+  if (options.allowedOrigins && !options.allowedOrigins.includes(url.origin))
+    throw new NavigationPolicyError(
+      "The destination is outside this regression run's fixture origins",
+    );
   if (options.allowPrivateNetworks ?? extrasAllowPrivateNetworks()) return url.toString();
   const hostname = url.hostname
     .replace(/^\[|\]$/g, "")
@@ -248,7 +254,13 @@ export async function withNavigationPolicy<T>(
                         ),
                         {
                           name: "Content-Security-Policy",
-                          value: "connect-src http: https:; worker-src 'none'",
+                          value: options.allowedOrigins
+                            ? `connect-src ${options.allowedOrigins.join(
+                                " ",
+                              )}; form-action ${options.allowedOrigins.join(
+                                " ",
+                              )}; worker-src 'none'; sandbox allow-scripts allow-same-origin allow-forms allow-downloads`
+                            : "connect-src http: https:; worker-src 'none'",
                         },
                       ],
                     });

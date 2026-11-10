@@ -57,8 +57,8 @@ function parseJson(
 }
 
 async function routes(server: FastifyInstance) {
-  const engine = server.commandEngine;
-  if (!engine) {
+  const engineFor = (id: string) => server.sessionCommands?.get(id) ?? server.commandEngine!;
+  if (!server.sessionCommands && !server.commandEngine) {
     return;
   }
   server.setErrorHandler<FastifyError>(async (error, _request, reply) => {
@@ -130,7 +130,7 @@ async function routes(server: FastifyInstance) {
       const key = request.headers["idempotency-key"];
       return send(
         reply,
-        await engine.handle({
+        await engineFor(request.params.sessionId).handle({
           sessionId: request.params.sessionId,
           idempotencyKey: Array.isArray(key) ? key[0] : key,
           body: request.body,
@@ -158,7 +158,10 @@ async function routes(server: FastifyInstance) {
     ) =>
       send(
         reply,
-        await engine.executionStatus(request.params.sessionId, request.params.executionId),
+        await engineFor(request.params.sessionId).executionStatus(
+          request.params.sessionId,
+          request.params.executionId,
+        ),
       ),
   );
 
@@ -181,7 +184,10 @@ async function routes(server: FastifyInstance) {
     ) =>
       send(
         reply,
-        await engine.cancelExecution(request.params.sessionId, request.params.executionId),
+        await engineFor(request.params.sessionId).cancelExecution(
+          request.params.sessionId,
+          request.params.executionId,
+        ),
       ),
   );
 }

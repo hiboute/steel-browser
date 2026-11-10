@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { FastifyBaseLogger } from "fastify";
-import puppeteer, { type Browser } from "puppeteer-core";
+import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { BrowserLauncherOptions } from "../../types/browser.js";
@@ -188,32 +188,59 @@ describe("CDPService lifecycle hook ownership", () => {
     await service.shutdown(ShutdownReason.SESSION_END);
   });
 
-  test("leaves no rejection behind when a page closes during setup", async () => {
-    const { service } = lifecycleFixture();
-    await service.startNewSession({
-      ...sessionConfig("first", "first-metadata"),
-      options: { headless: true },
-    });
-    let closed = false;
-    const page = {
-      isClosed: () => closed,
-      url: () => "about:blank",
-      on: vi.fn(),
-      evaluateOnNewDocument: vi.fn(async () => {
-        closed = true;
-        throw new Error("Protocol error (Page.addScriptToEvaluateOnNewDocument): Target closed");
-      }),
-    };
-    const target = { _targetId: "closing", type: () => "page", page: async () => page };
+  test.each(["native", "legacy"] as const)(
+    "leaves no rejection behind when a page closes during %s setup",
+    async (mode) => {
+      const { service } = lifecycleFixture();
+      await service.startNewSession({
+        ...sessionConfig("first", "first-metadata"),
+        options: { headless: true },
+        compatibilityMode: mode,
+        skipFingerprintInjection: mode === "native",
+        customHeaders: mode === "native" ? { "x-fixture": "closing" } : undefined,
+      });
+      let closed = false;
+      const page = {
+        isClosed: () => closed,
+        url: () => "about:blank",
+        on: vi.fn(),
+        target: () => target,
+        setExtraHTTPHeaders: vi.fn(async () => {
+          closed = true;
+          throw new Error("Protocol error (Network.setExtraHTTPHeaders): Target closed");
+        }),
+        evaluateOnNewDocument: vi.fn(async () => {
+          closed = true;
+          throw new Error("Protocol error (Page.addScriptToEvaluateOnNewDocument): Target closed");
+        }),
+      };
+      const target = { _targetId: "closing", type: () => "page", page: async () => page };
 
-    await (
-      service as unknown as { handleNewTarget: (target: unknown) => Promise<void> }
-    ).handleNewTarget(target);
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(page.evaluateOnNewDocument).toHaveBeenCalledOnce();
-    await service.shutdown(ShutdownReason.SESSION_END);
-  });
+      const tracked = service as unknown as {
+        setUpTarget(target: unknown): Promise<void>;
+        pageSetups: Map<string, Promise<void>>;
+      };
+      const rejections: unknown[] = [];
+      const unhandled = (reason: unknown) => rejections.push(reason);
+      process.on("unhandledRejection", unhandled);
+      try {
+        const setup = tracked.setUpTarget(target);
+        expect(tracked.pageSetups.has("closing")).toBe(true);
+        await service.waitForPageSetup(page as unknown as Page);
+        await setup;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(
+          mode === "native" ? page.setExtraHTTPHeaders : page.evaluateOnNewDocument,
+        ).toHaveBeenCalledOnce();
+        if (mode === "native") expect(page.evaluateOnNewDocument).not.toHaveBeenCalled();
+        expect(tracked.pageSetups.size).toBe(0);
+        expect(rejections).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", unhandled);
+      }
+      await service.shutdown(ShutdownReason.SESSION_END);
+    },
+  );
 
   test("retains hook ownership across session end and the next idle-browser relaunch", async () => {
     const { service, events } = lifecycleFixture();

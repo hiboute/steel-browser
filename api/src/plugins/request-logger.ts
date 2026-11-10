@@ -29,7 +29,9 @@ const logger: FastifyPluginAsync = async (fastify) => {
       req.log.info(
         {
           ip: getClientIp(req),
-          url: req.raw.url,
+          // Query strings may contain one-use control tickets, search text or
+          // webhook credentials. Route paths provide sufficient request context.
+          url: req.raw.url?.split("?", 1)[0],
           method: req.method,
           statusCode: reply.raw.statusCode,
           durationMs: roundMS(now() - reply.startTime),

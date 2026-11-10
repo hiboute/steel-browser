@@ -855,7 +855,13 @@ export class IdentityService {
         options.proxyLabel ??= egress;
       }
       const probe = await this.d.egressProbe?.(egress, resolved?.proxyUrl);
-      route = { ...route, ...probe };
+      // Probe metadata (notably checkedAt) changes on every request. Only
+      // route facts participate in an exact-observation confirmation token.
+      if (probe) {
+        route.publicIp = probe.publicIp;
+        route.country = probe.country;
+        route.healthy = probe.healthy;
+      }
       if (resolved?.proxyUrl) {
         const u = new URL(resolved.proxyUrl);
         route.upstream = `${u.protocol}//${u.hostname}:${u.port}`;

@@ -38,6 +38,10 @@ interface Options {
     ctx: StepContext,
     input: { reference: string; selector: string; frameUrl?: string },
   ) => Promise<unknown>;
+  captureFileEvidence?: (
+    ctx: StepContext,
+    input: import("./workflows.types.js").FileAssertion,
+  ) => Promise<import("./workflows.types.js").VerifiedFileEvidence>;
   verifyAttachment?: (
     ctx: StepContext,
     attachment: ReviewRecord["proposal"]["attachments"][number],
@@ -73,6 +77,7 @@ const plugin: FastifyPluginAsync<Options> = async (server, options) => {
     isSensitiveSession: options.isSensitiveSession,
     vaultFill: options.vaultFill,
     verifyAttachment: options.verifyAttachment,
+    captureFileEvidence: options.captureFileEvidence,
     authorizeWatcher:
       options.authorizeWatcher ??
       ((watcherId, principal) => {
@@ -246,7 +251,11 @@ const plugin: FastifyPluginAsync<Options> = async (server, options) => {
         spec("get_workflow_evidence", "Download owner-scoped receipt evidence"),
         async (request, reply) => {
           const evidence = await workflows.getEvidence(id(request), actor(request));
+          if (evidence.filename)
+            reply.header("Content-Disposition", `attachment; filename="${evidence.filename}"`);
+          if (evidence.sha256) reply.header("X-Evidence-SHA256", evidence.sha256);
           return reply
+            .header("X-Content-Type-Options", "nosniff")
             .header("Cache-Control", "private, no-store")
             .type(evidence.mime)
             .send(evidence.data);

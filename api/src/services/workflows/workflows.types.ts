@@ -42,6 +42,33 @@ export const ProposalSchema = z
   .strict();
 export type Proposal = z.infer<typeof ProposalSchema>;
 const InputReference = z.object({ $input: z.string().min(1).max(200) }).strict();
+export const MAX_FILE_EVIDENCE_BYTES = 8 * 1024 * 1024;
+export const FILE_EVIDENCE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+export const FileAssertionSchema = z
+  .object({
+    id: ProductId,
+    label: z.string().min(1).max(200),
+    artifactId: ProductId,
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    bytes: z.number().int().min(0).max(MAX_FILE_EVIDENCE_BYTES).optional(),
+  })
+  .strict();
+export type FileAssertion = z.infer<typeof FileAssertionSchema>;
+const FileAssertionTemplateSchema = FileAssertionSchema.extend({
+  artifactId: z.union([ProductId, InputReference]),
+  sha256: z.union([FileAssertionSchema.shape.sha256, InputReference]),
+  bytes: z.union([FileAssertionSchema.shape.bytes.unwrap(), InputReference]).optional(),
+});
+export interface VerifiedFileEvidence {
+  artifactId: string;
+  ownerId: string;
+  sessionId: string;
+  sha256: string;
+  bytes: number;
+  name: string;
+  mime: string;
+  data: Buffer;
+}
 const ProposalTemplateSchema = ProposalSchema.extend({
   summary: z.union([z.string().min(1).max(2000), InputReference]),
   destination: z.union([z.string().min(1).max(2000), InputReference]),
@@ -64,6 +91,13 @@ export const ProcedureStepSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
   z.object({ id: ProductId, kind: z.literal("assert"), assertion: AssertionSchema }).strict(),
+  z
+    .object({
+      id: ProductId,
+      kind: z.literal("assert_file"),
+      assertion: FileAssertionTemplateSchema,
+    })
+    .strict(),
   z
     .object({
       id: ProductId,
@@ -197,8 +231,19 @@ export interface AssertionResult {
   actual?: unknown;
   observedAt: string;
   url?: string;
-  source: "browser-command";
-  evidence?: { type: "screenshot"; artifactId: string; sha256: string };
+  source: "browser-command" | "artifact-file";
+  evidence?:
+    | { type: "screenshot"; artifactId: string; sha256: string }
+    | {
+        type: "file";
+        artifactId: string;
+        sourceArtifactId: string;
+        expiresAt: string;
+        sha256: string;
+        bytes: number;
+        name: string;
+        mime: string;
+      };
   reason?: string;
 }
 export interface CompletionReceipt {

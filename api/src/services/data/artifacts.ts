@@ -151,6 +151,42 @@ export class ArtifactService {
     return artifact;
   }
   async verify(id: string, actor: DataActor, expectedSha256: string) {
+    const { artifact, data: _ } = await this.readVerified(
+      id,
+      actor,
+      expectedSha256,
+      25 * 1024 * 1024,
+    );
+    return {
+      id: artifact.id,
+      sha256: artifact.sha256,
+      sessionId: artifact.sessionId,
+      path: artifact.sourcePath,
+      bytes: artifact.bytes,
+    };
+  }
+  /** Immutable bounded copy from the same safe file handle that was hashed. */
+  async captureEvidence(id: string, actor: DataActor, expectedSha256: string, maxBytes: number) {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > 25 * 1024 * 1024)
+      throw new DataError("invalid_limit", "File evidence limit is invalid");
+    const { artifact, data } = await this.readVerified(id, actor, expectedSha256, maxBytes);
+    return {
+      artifactId: artifact.id,
+      ownerId: artifact.owner,
+      sessionId: artifact.sessionId!,
+      sha256: artifact.sha256,
+      bytes: data.length,
+      name: artifact.name,
+      mime: artifact.mime,
+      data,
+    };
+  }
+  private async readVerified(
+    id: string,
+    actor: DataActor,
+    expectedSha256: string,
+    maxBytes: number,
+  ) {
     const artifact = await this.get(id, actor);
     if (artifact.sha256 !== expectedSha256)
       throw new DataError("artifact_changed", "Reviewed artifact hash does not match", 409);
@@ -160,19 +196,36 @@ export class ArtifactService {
       throw new DataError("invalid_path", "Artifact leaves its session directory");
     const handle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
-      const details = await handle.stat();
-      if (!details.isFile() || details.size !== artifact.bytes || details.size > 25 * 1024 * 1024)
+      const before = await handle.stat();
+      if (
+        !before.isFile() ||
+        before.size !== artifact.bytes ||
+        before.mtimeMs !== artifact.sourceModifiedAt
+      )
         throw new DataError("artifact_changed", "Reviewed artifact changed", 409);
-      const bytes = await handle.readFile();
-      if (createHash("sha256").update(bytes).digest("hex") !== expectedSha256)
+      if (before.size > maxBytes)
+        throw new DataError("artifact_too_large", "File exceeds the evidence size limit", 413);
+      // Never readFile() a potentially growing file: allocation and reads remain bounded.
+      const data = Buffer.alloc(before.size);
+      let offset = 0;
+      while (offset < data.length) {
+        const { bytesRead } = await handle.read(
+          data,
+          offset,
+          Math.min(65536, data.length - offset),
+          offset,
+        );
+        if (!bytesRead) throw new DataError("artifact_changed", "Reviewed artifact changed", 409);
+        offset += bytesRead;
+      }
+      const after = await handle.stat();
+      if (
+        after.size !== before.size ||
+        after.mtimeMs !== before.mtimeMs ||
+        createHash("sha256").update(data).digest("hex") !== expectedSha256
+      )
         throw new DataError("artifact_changed", "Reviewed artifact changed", 409);
-      return {
-        id: artifact.id,
-        sha256: artifact.sha256,
-        sessionId: artifact.sessionId,
-        path: artifact.sourcePath,
-        bytes: artifact.bytes,
-      };
+      return { artifact, data };
     } finally {
       await handle.close();
     }

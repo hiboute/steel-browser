@@ -10,6 +10,11 @@ import { withNavigationPolicy } from "../navigation-policy.js";
 import { redactArguments } from "../handoff/agent-feature-utils.js";
 import {
   AssertionSchema,
+  FileAssertionSchema,
+  MAX_FILE_EVIDENCE_BYTES,
+  FILE_EVIDENCE_RETENTION_MS,
+  type FileAssertion,
+  type VerifiedFileEvidence,
   ProcedureInputSchema,
   ProcedureStartSchema,
   ProposalSchema,
@@ -67,6 +72,7 @@ interface Dependencies {
     ctx: StepContext,
     input: { reference: string; selector: string; frameUrl?: string },
   ) => Promise<unknown>;
+  captureFileEvidence?: (ctx: StepContext, input: FileAssertion) => Promise<VerifiedFileEvidence>;
   verifyAttachment?: (
     ctx: StepContext,
     attachment: ReviewRecord["proposal"]["attachments"][number],
@@ -98,6 +104,7 @@ export class WorkflowService {
   private unsubscribe?: () => void;
   private tickTask?: Promise<void>;
   private closed = false;
+  private nextFileEvidenceSweepAt = 0;
   private readonly replayGuards = new Map<
     string,
     {
@@ -125,6 +132,11 @@ export class WorkflowService {
       validate: (input) => this.validateAssertion(input),
       replay: "safe",
       execute: (ctx) => this.executeAssertion(ctx),
+    });
+    this.deps.runtime.registerKind("product.assert_file", {
+      validate: (input) => FileAssertionSchema.parse(input),
+      replay: "safe",
+      execute: (ctx) => this.executeFileAssertion(ctx),
     });
     this.deps.runtime.registerKind("product.vault_fill", {
       validate: (input) => {
@@ -189,6 +201,7 @@ export class WorkflowService {
           if (!terminal.has(run.status) && run.sessionId) this.holdReview(review, run.sessionId);
         }
       }
+    await this.cleanupFileEvidence();
     if (startTimer) {
       this.timer = setInterval(() => void this.tick().catch((e) => this.deps.onError?.(e)), 15000);
       this.timer.unref();
@@ -438,6 +451,14 @@ export class WorkflowService {
           id: step.id,
           kind: "product.assert",
           input: this.validateAssertion(step.assertion),
+        });
+        continue;
+      }
+      if (step.kind === "assert_file") {
+        steps.push({
+          id: step.id,
+          kind: "product.assert_file",
+          input: FileAssertionSchema.parse(step.assertion),
         });
         continue;
       }
@@ -842,6 +863,133 @@ export class WorkflowService {
     return { status: "succeeded" as const, output: { assertion: result } };
   }
 
+  private async executeFileAssertion(ctx: StepContext) {
+    const assertion = FileAssertionSchema.parse(ctx.step.input);
+    const result: AssertionResult = {
+      id: assertion.id,
+      label: assertion.label,
+      status: "unavailable",
+      operator: "equals",
+      expected: { sha256: assertion.sha256, bytes: assertion.bytes },
+      observedAt: this.now().toISOString(),
+      source: "artifact-file",
+    };
+    const allowed = () =>
+      Boolean(
+        ctx.run.sessionId &&
+          !ctx.signal.aborted &&
+          !this.deps.isSensitiveSession?.(ctx.run.sessionId) &&
+          this.deps.evidenceAllowed?.(ctx.run.sessionId) === true,
+      );
+    const privacy = () => {
+      result.status = "unavailable";
+      result.actual = "[redacted sensitive session]";
+      result.expected = "[redacted sensitive session]";
+      delete result.evidence;
+      result.reason = "File evidence is disabled for this session";
+    };
+    ctx.signal.throwIfAborted();
+    if (!allowed()) privacy();
+    else if (!this.deps.store.encrypted || !this.deps.captureFileEvidence)
+      result.reason = "Encrypted file evidence capture is unavailable";
+    else {
+      try {
+        const file = await this.deps.captureFileEvidence(ctx, assertion);
+        ctx.signal.throwIfAborted();
+        if (!allowed()) privacy();
+        else if (
+          file.artifactId !== assertion.artifactId ||
+          file.ownerId !== ctx.run.ownerId ||
+          file.sessionId !== ctx.run.sessionId
+        )
+          result.reason = "File evidence does not belong to this task's browser and owner";
+        else if (
+          !Buffer.isBuffer(file.data) ||
+          !Number.isSafeInteger(file.bytes) ||
+          file.bytes < 0 ||
+          file.bytes > MAX_FILE_EVIDENCE_BYTES ||
+          file.data.length !== file.bytes
+        )
+          result.reason = "File evidence exceeds its bounded size or is incomplete";
+        else if (
+          file.sha256 !== assertion.sha256 ||
+          createHash("sha256").update(file.data).digest("hex") !== assertion.sha256 ||
+          (assertion.bytes !== undefined && assertion.bytes !== file.bytes)
+        ) {
+          result.status = "failed";
+          result.reason = "File does not match the declared hash and size";
+        } else {
+          const artifactId = digest({ runId: ctx.run.id, stepId: ctx.step.id, type: "file" });
+          // Metadata is bounded and never includes source paths or file contents.
+          const name = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "evidence.bin";
+          const mime = [
+            "application/pdf",
+            "image/png",
+            "image/jpeg",
+            "image/tiff",
+            "text/plain",
+          ].includes(file.mime)
+            ? file.mime
+            : "application/octet-stream";
+          const evidence = {
+            type: "file" as const,
+            artifactId,
+            sourceArtifactId: file.artifactId,
+            expiresAt: new Date(this.now().getTime() + FILE_EVIDENCE_RETENTION_MS).toISOString(),
+            sha256: assertion.sha256,
+            bytes: file.bytes,
+            name,
+            mime,
+          };
+          await this.serial(async () => {
+            // Journal expiry first: a crash cannot leave an unindexed retained file.
+            await this.deps.store.write(`workflows/file-evidence-expiry/${artifactId}.json`, {
+              expiresAt: evidence.expiresAt,
+            });
+            if (!allowed()) {
+              await this.removeFileEvidence(artifactId);
+              ctx.signal.throwIfAborted();
+              privacy();
+              return;
+            }
+            await this.deps.store.write(`workflows/evidence/${artifactId}.json`, {
+              ownerId: ctx.run.ownerId,
+              sessionId: ctx.run.sessionId,
+              runId: ctx.run.id,
+              ...evidence,
+              observedAt: result.observedAt,
+              data: file.data.toString("base64"),
+            });
+            if (!allowed()) {
+              await this.removeFileEvidence(artifactId);
+              ctx.signal.throwIfAborted();
+              privacy();
+            } else {
+              result.status = "passed";
+              result.actual = { sha256: assertion.sha256, bytes: file.bytes };
+              result.evidence = evidence;
+            }
+          });
+        }
+      } catch (error) {
+        ctx.signal.throwIfAborted();
+        if (!allowed()) privacy();
+        else {
+          result.status = ["artifact_changed", "source_changed"].includes(
+            (error as { code?: string }).code ?? "",
+          )
+            ? "failed"
+            : "unavailable";
+          result.reason =
+            result.status === "failed"
+              ? "File changed or does not match the declared hash"
+              : "Owned file evidence could not be captured";
+        }
+      }
+    }
+    return { status: "succeeded" as const, output: { assertion: result } };
+  }
+
   async refreshReceipt(run: WorkflowRun): Promise<CompletionReceipt> {
     return this.serial(async () => {
       const assertions = run.results
@@ -916,13 +1064,86 @@ export class WorkflowService {
     return rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
   async getEvidence(id: string, actor: WorkflowActor) {
-    ProductId.parse(id);
-    const evidence = await this.deps.store.read<{ ownerId: string; mime: string; data: string }>(
-      `workflows/evidence/${id}.json`,
-    );
-    if (!evidence) throw new WorkflowError("evidence_not_found", "Evidence not found", 404);
-    this.authorize(evidence.ownerId, actor);
-    return { mime: evidence.mime, data: Buffer.from(evidence.data, "base64") };
+    return this.serial(async () => {
+      ProductId.parse(id);
+      const evidence = await this.deps.store.read<{
+        ownerId: string;
+        mime: string;
+        data: string;
+        type?: "file";
+        expiresAt?: string;
+        name?: string;
+        sha256?: string;
+        bytes?: number;
+        sessionId?: string;
+      }>(`workflows/evidence/${id}.json`);
+      if (!evidence) throw new WorkflowError("evidence_not_found", "Evidence not found", 404);
+      this.authorize(evidence.ownerId, actor);
+      if (evidence.type === "file" && evidence.ownerId !== actor.id)
+        throw new WorkflowError("forbidden", "File evidence belongs to another owner", 403);
+      if (
+        evidence.type === "file" &&
+        (!evidence.expiresAt ||
+          !Number.isFinite(Date.parse(evidence.expiresAt)) ||
+          Date.parse(evidence.expiresAt) <= this.now().getTime())
+      ) {
+        await this.removeFileEvidence(id);
+        throw new WorkflowError("evidence_expired", "File evidence retention has expired", 410);
+      }
+      if (evidence.sessionId && this.deps.isSensitiveSession?.(evidence.sessionId))
+        throw new WorkflowError(
+          "evidence_unavailable",
+          "Evidence is unavailable for this sensitive session",
+          404,
+        );
+      if (
+        evidence.type === "file" &&
+        (typeof evidence.data !== "string" ||
+          evidence.data.length > Math.ceil(MAX_FILE_EVIDENCE_BYTES / 3) * 4)
+      )
+        throw new WorkflowError("evidence_corrupt", "Stored file evidence exceeds its limit", 409);
+      const data = Buffer.from(evidence.data, "base64");
+      if (
+        evidence.type === "file" &&
+        (data.length > MAX_FILE_EVIDENCE_BYTES ||
+          data.length !== evidence.bytes ||
+          createHash("sha256").update(data).digest("hex") !== evidence.sha256)
+      )
+        throw new WorkflowError(
+          "evidence_corrupt",
+          "Stored file evidence failed integrity verification",
+          409,
+        );
+      return {
+        mime: evidence.mime,
+        data,
+        filename: evidence.type === "file" ? evidence.name : undefined,
+        sha256: evidence.sha256,
+      };
+    });
+  }
+
+  private async removeFileEvidence(id: string) {
+    await this.deps.store.remove(`workflows/evidence/${id}.json`);
+    await this.deps.store.remove(`workflows/file-evidence-expiry/${id}.json`);
+  }
+  private async cleanupFileEvidence() {
+    return this.serial(async () => {
+      const now = this.now().getTime();
+      if (now < this.nextFileEvidenceSweepAt) return;
+      for (const file of await this.deps.store.list("workflows/file-evidence-expiry")) {
+        if (!file.endsWith(".json") || !ProductId.safeParse(file.slice(0, -5)).success) continue;
+        const index = await this.deps.store.read<{ expiresAt: string }>(
+          `workflows/file-evidence-expiry/${file}`,
+        );
+        if (
+          index &&
+          (!Number.isFinite(Date.parse(index.expiresAt)) || Date.parse(index.expiresAt) <= now)
+        )
+          await this.removeFileEvidence(file.slice(0, -5));
+      }
+      this.nextFileEvidenceSweepAt = now + 60 * 60 * 1000;
+    });
   }
 
   listSchedules(actor: WorkflowActor) {
@@ -1109,6 +1330,7 @@ export class WorkflowService {
   }
   private async runTick() {
     if (this.closed) return;
+    await this.cleanupFileEvidence();
     for (const id of this.reviewHolds.keys()) await this.expireReview(id);
     for (const schedule of Object.values(this.manifest.schedules)) {
       if (
@@ -1239,10 +1461,10 @@ export class WorkflowService {
         "Replay sessions may only specify runtime and emulation options",
       );
     for (const template of procedure.steps) {
-      if (template.kind === "vault_fill")
+      if (template.kind === "vault_fill" || template.kind === "assert_file")
         throw new WorkflowError(
           "unsafe_replay_command",
-          "Regression replays cannot retrieve account secrets",
+          "Regression replays cannot retrieve account secrets or existing session files",
         );
       if (template.kind !== "commands") continue;
       const request = requestSchema.parse(substitute(template.input, parsed.inputs));

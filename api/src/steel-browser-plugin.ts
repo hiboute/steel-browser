@@ -155,6 +155,25 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
         assertControl: () => fastify.control.assert(id, context.actor, context.controlToken),
       });
     },
+    captureFileEvidence: async (context, assertion) => {
+      const id = context.run.sessionId;
+      if (!id)
+        throw new WorkflowError(
+          "session_required",
+          "File evidence requires its owned browser",
+          409,
+        );
+      fastify.control.assert(id, context.actor, context.controlToken);
+      const evidence = await fastify.artifactProcessing.captureEvidence(
+        assertion.artifactId,
+        context.actor,
+        assertion.sha256,
+        8 * 1024 * 1024,
+      );
+      context.signal.throwIfAborted();
+      fastify.control.assert(id, context.actor, context.controlToken);
+      return evidence;
+    },
     verifyAttachment: async (context, attachment) => {
       const record = await fastify.artifactProcessing.verify(
         attachment.artifactId,

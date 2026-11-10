@@ -159,6 +159,30 @@ async function parkedSession(fixture: Awaited<ReturnType<typeof setup>>, id = "p
 }
 
 describe("durable session parking", () => {
+  it("reports the native browser UA without persisting it as a resume override", async () => {
+    const { service, browsers } = await setup();
+    const measured = "Mozilla/5.0 Chrome/156.0.8103.39 Safari/537.36";
+    for (const browser of browsers) {
+      vi.spyOn(browser, "getUserAgent").mockReturnValue(undefined as never);
+      vi.spyOn(browser, "getFingerprintData").mockReturnValue(undefined as never);
+      Object.assign(browser, {
+        getBrowserInstance: () => ({ userAgent: async () => measured }),
+      });
+    }
+    const created = await service.startSession({
+      compatibilityMode: "native",
+      skipFingerprintInjection: true,
+    });
+    expect(created.userAgent).toBe(measured);
+    expect(service.getLaunchOptions(created.id)?.userAgent).toBeUndefined();
+    await service.parkSession(created.id);
+    const resumed = await service.resumeSession(created.id);
+    expect(resumed.userAgent).toBe(measured);
+    expect(browsers[0].startNewSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ userAgent: undefined, skipFingerprintInjection: true }),
+    );
+  });
+
   it("persists encrypted cookies, tabs, launch identity, and profile data across a restart", async () => {
     const fixture = await setup();
     const { service, browsers, store } = fixture;

@@ -788,8 +788,7 @@ export class SessionService {
           debuggerUrl: getUrl("v1/devtools/inspector.html"),
           sessionViewerUrl: getBaseUrl(),
           userAgent:
-            cdpService.getUserAgent() ||
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            cdpService.getUserAgent() || (await cdpService.getBrowserInstance()?.userAgent()) || "",
           dimensions: cdpService.getDimensions(),
           deviceConfig,
         });
@@ -802,7 +801,9 @@ export class SessionService {
       const effective = this.launchOptions.get(sessionId)!;
       effective.timezone = await timezonePromise;
       effective.fingerprint = cdpService.getFingerprintData?.() ?? fingerprint;
-      effective.userAgent = session.userAgent;
+      // Native mode reports the browser's measured UA, but must not turn that
+      // observation into an override when this session is resumed or branched.
+      effective.userAgent = isSelenium ? session.userAgent : cdpService.getUserAgent();
       effective.dimensions = session.dimensions;
       await this.hooks.run("onBrowserReady", session);
       if (options._resuming) {

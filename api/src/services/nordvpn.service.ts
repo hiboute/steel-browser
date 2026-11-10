@@ -53,6 +53,16 @@ export async function pickNordServer(country?: string): Promise<string> {
   return server.hostname;
 }
 
+/**
+ * The name to dial for a server's HTTPS proxy. The proxy's certificate covers
+ * only *.proxy.nordvpn.com, so nl1279.nordvpn.com must be dialled as
+ * nl1279.proxy.nordvpn.com (same IP) or the TLS handshake to the proxy fails.
+ */
+export function proxyHostFor(hostname: string): string {
+  const m = /^([a-z0-9-]+)\.nordvpn\.com$/i.exec(hostname);
+  return m ? `${m[1]}.proxy.nordvpn.com` : hostname;
+}
+
 /** An upstream proxy URL through NordVPN, plus a label without the credentials. */
 export async function nordVpnProxy(country?: string): Promise<{ url: string; label: string }> {
   if (!nordVpnConfigured()) {
@@ -60,7 +70,7 @@ export async function nordVpnProxy(country?: string): Promise<{ url: string; lab
       "NordVPN is not set up: NORDVPN_SERVICE_USER and NORDVPN_SERVICE_PASS are missing.",
     );
   }
-  const host = await pickNordServer(country);
+  const host = proxyHostFor(await pickNordServer(country));
   const user = encodeURIComponent(env.NORDVPN_SERVICE_USER!);
   const pass = encodeURIComponent(env.NORDVPN_SERVICE_PASS!);
   return { url: `https://${user}:${pass}@${host}:${PROXY_PORT}`, label: `nordvpn:${host}` };

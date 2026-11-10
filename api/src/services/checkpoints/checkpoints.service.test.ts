@@ -66,12 +66,24 @@ describe("immutable browser checkpoints", () => {
   });
   it("detects tampering and missing files across service restart", async () => {
     const saved = await service.create("source", { name: "consistent" }, actor);
+    const restarted = new CheckpointService(
+      new PlatformStore(root, "test-key"),
+      {
+        importCheckpoint: async (restored: any) => {
+          imports.push(restored);
+          return restored.details;
+        },
+        getSession: () => undefined,
+      } as any,
+      () => {},
+    );
+    expect(await restarted.get(saved.id, actor)).toEqual(saved);
     await writeFile(store.path(`checkpoints/${saved.id}/profile/Default/state`), "tampered");
-    await expect(service.branch(saved.id, {}, actor)).rejects.toMatchObject({
+    await expect(restarted.branch(saved.id, {}, actor)).rejects.toMatchObject({
       code: "checkpoint_corrupt",
     });
     await rm(store.path(`checkpoints/${saved.id}/profile/Default/state`));
-    await expect(service.branch(saved.id, {}, actor)).rejects.toMatchObject({
+    await expect(restarted.branch(saved.id, {}, actor)).rejects.toMatchObject({
       code: "checkpoint_corrupt",
     });
     expect(imports).toHaveLength(0);

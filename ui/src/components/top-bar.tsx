@@ -79,7 +79,7 @@ export function TopBar({
       </nav>
       {session && (
         <div className="top-bar-actions">
-          {session.status === "live" && <SaveCookiesButton session={session} />}
+          {(session.status === "live" || session.status === "idle") && <SaveCookiesButton session={session} />}
           {session.status === "live" && (
             <ReleaseButton sessionId={session.id} onReleased={() => onSessionChange()} />
           )}

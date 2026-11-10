@@ -109,7 +109,7 @@ async function routes(server: FastifyInstance) {
     {
       schema: {
         operationId: "capture_cookie_set",
-        summary: "Save a live session's cookies and localStorage as a cookie set",
+        summary: "Save a live (or the idle) session's cookies and localStorage as a cookie set",
         description:
           "Reads the cookies and localStorage of a live session (default: the most recent one) and saves them under this name, replacing any set with the same name. Pass domains to keep only those sites (subdomains included).",
         tags: ["Cookie library"],
@@ -133,10 +133,11 @@ async function routes(server: FastifyInstance) {
     ) => {
       try {
         const { sessionId, domains, description } = request.body ?? {};
+        // The idle browser counts too: it is where people log in by hand.
         const session = sessionId
-          ? server.sessionService.getSession(sessionId)
+          ? server.sessionService.findSocketSession(sessionId)
           : server.sessionService.activeSession;
-        if (!session || session.status !== "live") {
+        if (!session || (session.status !== "live" && session.status !== "idle")) {
           throw new Error(`Session ${sessionId ?? ""} is not live`.replace("  ", " "));
         }
         const state = await session.cdpService.getBrowserState();

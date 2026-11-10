@@ -57,7 +57,7 @@ export const ProcedureStepSchema = z.discriminatedUnion("kind", [
       retry: z
         .object({
           maxAttempts: z.number().int().min(1).max(5),
-          delayMs: z.number().int().min(0).max(300000),
+          delayMs: z.number().int().min(0).max(60000),
         })
         .optional(),
     })

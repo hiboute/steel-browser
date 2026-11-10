@@ -64,3 +64,19 @@ describe("egress profiles", () => {
     });
   });
 });
+
+it("probes a frozen upstream freshly without selecting another recommended VPN server", async () => {
+  vi.mocked(axios.get)
+    .mockReset()
+    .mockResolvedValueOnce({ data: "ip=203.0.113.10\nloc=FR\n" })
+    .mockResolvedValueOnce({ data: "ip=203.0.113.11\nloc=FR\n" });
+  const service = new EgressService();
+  const resolver = vi.spyOn(service, "resolve");
+  const first = await service.checkResolved("nordvpn:FR", "https://user:secret@frozen.test:443");
+  const next = await service.checkResolved("nordvpn:FR", "https://user:secret@frozen.test:443");
+  expect(first.publicIp).toBe("203.0.113.10");
+  expect(next.publicIp).toBe("203.0.113.11");
+  expect(resolver).not.toHaveBeenCalled();
+  expect(axios.get).toHaveBeenCalledTimes(2);
+  expect(JSON.stringify(next)).not.toContain("secret");
+});

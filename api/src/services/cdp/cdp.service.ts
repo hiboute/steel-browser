@@ -448,7 +448,10 @@ export class CDPService extends EventEmitter {
         }
 
         // Only install mouse helper in headless mode
-        if (this.launchConfig?.options?.headless) {
+        if (
+          this.launchConfig?.options?.headless &&
+          this.getCompatibilityState().mode === "legacy"
+        ) {
           await installMouseHelper(page, this.launchConfig?.deviceConfig?.device || "desktop");
         }
 
@@ -464,7 +467,7 @@ export class CDPService extends EventEmitter {
         await this.applyDeviceMetricsOverride(page);
 
         // Inject fingerprint only if it's not skipped
-        if (!env.SKIP_FINGERPRINT_INJECTION && !this.launchConfig?.skipFingerprintInjection) {
+        if (this.isFingerprintInjectionEnabled()) {
           // Use our safer fingerprint injection method instead of FingerprintInjector
           await this.injectFingerprintSafely(page, this.fingerprintData);
           this.logger.debug("[CDPService] Injected fingerprint into page");
@@ -857,6 +860,7 @@ export class CDPService extends EventEmitter {
         );
 
         const { options, userAgent, userDataDir, fingerprint } = this.launchConfig;
+        this.compatibilityFallbacks.clear();
         this.fingerprintData = fingerprint ?? null;
 
         // Run launch mutators - plugin errors should be caught
@@ -878,7 +882,7 @@ export class CDPService extends EventEmitter {
 
         // Fingerprint generation - can fail gracefully
         if (
-          !env.SKIP_FINGERPRINT_INJECTION &&
+          this.isFingerprintInjectionEnabled() &&
           !userAgent &&
           !this.launchConfig.skipFingerprintInjection &&
           !this.fingerprintData
@@ -1072,7 +1076,9 @@ export class CDPService extends EventEmitter {
         const headlessArgs = [
           "--headless=new",
           "--hide-crash-restore-bubble",
-          "--disable-blink-features=AutomationControlled",
+          ...(this.launchConfig?.compatibilityMode === "native"
+            ? []
+            : ["--disable-blink-features=AutomationControlled"]),
           // can we just remove this outright?
           `--unsafely-treat-insecure-origin-as-secure=http://localhost:3000,http://${env.HOST}:${env.PORT}`,
         ];
@@ -1111,7 +1117,7 @@ export class CDPService extends EventEmitter {
           args: launchArgs,
           executablePath: this.chromeExecPath,
           ignoreDefaultArgs: [
-            "--enable-automation",
+            ...(this.launchConfig?.compatibilityMode === "native" ? [] : ["--enable-automation"]),
             ...(extensionPaths.length ? ["--disable-extensions"] : []),
           ],
           timeout: LAUNCH_TIMEOUT_MS,
@@ -1396,6 +1402,51 @@ export class CDPService extends EventEmitter {
 
   public getDimensions() {
     return this.currentSessionConfig?.dimensions || { width: 1920, height: 1080 };
+  }
+
+  private compatibilityFallbacks = new Set<string>();
+
+  public getCompatibilityState() {
+    const mode =
+      this.launchConfig?.skipFingerprintInjection || env.SKIP_FINGERPRINT_INJECTION
+        ? "native"
+        : this.launchConfig?.compatibilityMode ?? "legacy";
+    return {
+      mode,
+      version: 1,
+      patches:
+        mode === "native"
+          ? []
+          : [
+              {
+                id: "cdp-identity",
+                version: 1,
+                apis: ["User-Agent", "Client Hints", "Accept-Language", "viewport", "touch"],
+              },
+              ...(mode === "legacy"
+                ? [
+                    {
+                      id: "legacy-script",
+                      version: 1,
+                      apis: ["navigator", "WebGL", "Worker", "console", "Object reflection"],
+                      status: "legacy-unverified",
+                    },
+                  ]
+                : []),
+            ],
+      fallbacks: [...this.compatibilityFallbacks],
+      runtime: {
+        defaultGpuDisabled: !env.FILTER_CHROME_ARGS.includes("--disable-gpu"),
+        headless: this.launchConfig?.options?.headless ?? true,
+        automationControlledFlag:
+          this.launchConfig?.compatibilityMode !== "native" &&
+          !!this.launchConfig?.options?.headless,
+      },
+      limits: [
+        "No guarantee of site acceptance",
+        "Host fonts, graphics, codecs and worker capabilities remain host-dependent",
+      ],
+    };
   }
 
   public getFingerprintData(): BrowserFingerprintWithHeaders | null {
@@ -1704,17 +1755,24 @@ export class CDPService extends EventEmitter {
       const { isMobile, navigatorPlatform, uaPlatform, override } =
         this.buildUserAgentOverride(fingerprintData);
 
-      if (isMobile) {
+      if (isMobile || this.getCompatibilityState().mode === "compatible") {
         await page.setUserAgent(override.userAgent, override.userAgentMetadata);
       } else {
         await page.setUserAgent(override.userAgent);
       }
 
-      await this.withEmulationSession(page, isMobile, async (session) => {
-        await page.setExtraHTTPHeaders(filterHeaders(headers));
-        await session.send("Emulation.setUserAgentOverride", override);
-      });
+      await this.withEmulationSession(
+        page,
+        isMobile || this.getCompatibilityState().mode === "compatible",
+        async (session) => {
+          await page.setExtraHTTPHeaders(filterHeaders(headers));
+          await session.send("Emulation.setUserAgentOverride", override);
+        },
+      );
 
+      // Compatible mode uses browser-supported CDP overrides only. It deliberately
+      // leaves console, reflection, graphics and Worker constructors untouched.
+      if (this.getCompatibilityState().mode === "compatible") return;
       await page.evaluateOnNewDocument(
         loadFingerprintScript({
           fixedPlatform: navigatorPlatform,
@@ -1743,6 +1801,8 @@ export class CDPService extends EventEmitter {
         return;
       }
       this.logger.error({ error }, `[Fingerprint] Error injecting fingerprint safely`);
+      if (this.getCompatibilityState().mode !== "legacy") throw error;
+      this.compatibilityFallbacks.add("fingerprint-injector@2.1.82");
       const fingerprintInjector = new FingerprintInjector();
       // @ts-ignore - Ignore type mismatch between puppeteer versions
       await fingerprintInjector.attachFingerprintToPuppeteer(page, fingerprintData);
@@ -1751,6 +1811,7 @@ export class CDPService extends EventEmitter {
 
   @traceable
   private async applyDeviceMetricsOverride(page: Page): Promise<void> {
+    if (!this.isFingerprintInjectionEnabled()) return;
     const screen = this.fingerprintData?.fingerprint?.screen;
     if (!screen) {
       this.logger.warn(
@@ -1761,7 +1822,9 @@ export class CDPService extends EventEmitter {
 
     const isMobile = this.isMobileUserAgent(this.getUserAgent());
     const { metrics, touch } = this.buildDeviceMetrics(screen, isMobile);
-    const persist = isMobile && this.isFingerprintInjectionEnabled();
+    const persist =
+      (isMobile || this.getCompatibilityState().mode === "compatible") &&
+      this.isFingerprintInjectionEnabled();
     await this.withEmulationSession(page, persist, async (session) => {
       await session.send("Page.setDeviceMetricsOverride", metrics);
       if (touch) {
@@ -1869,7 +1932,11 @@ export class CDPService extends EventEmitter {
   }
 
   private isFingerprintInjectionEnabled(): boolean {
-    return !env.SKIP_FINGERPRINT_INJECTION && !this.launchConfig?.skipFingerprintInjection;
+    return (
+      this.launchConfig?.compatibilityMode !== "native" &&
+      !env.SKIP_FINGERPRINT_INJECTION &&
+      !this.launchConfig?.skipFingerprintInjection
+    );
   }
 
   private isMobileUserAgent(userAgent: string | null | undefined): boolean {

@@ -68,6 +68,55 @@ it("data HTTP routes enforce principals, validate input, and never expose anothe
     expect((await server.inject({ url: `/v1/page-snapshots/${record.id}` })).json()).toMatchObject({
       text: "private tea price",
     });
+    const extraction = await server.dataRecords.create("extract", "alice", {
+      data: { product: "Tea" },
+      evidence: [
+        { path: "/product", status: "grounded", excerpt: "Tea", url: "https://example.com" },
+      ],
+    });
+    await server.sessionSearch.index({
+      kind: "extract",
+      sourceId: extraction.id,
+      owner: "alice",
+      title: "Tea catalog",
+      text: "Tea",
+      href: "/?view=data",
+    });
+    expect(
+      (
+        await server.inject({
+          url: `/v1/extractions/${extraction.id}`,
+          headers: { "test-user": "bob" },
+        })
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await server.inject({
+          method: "DELETE",
+          url: `/v1/extractions/${extraction.id}`,
+          headers: { "test-user": "bob" },
+        })
+      ).statusCode,
+    ).toBe(404);
+    const retained = await server.inject({ url: `/v1/extractions/${extraction.id}` });
+    expect(retained.statusCode).toBe(200);
+    expect(retained.headers["cache-control"]).toBe("private, no-store");
+    expect(retained.json()).toMatchObject({
+      data: { product: "Tea" },
+      evidence: extraction.evidence,
+    });
+    expect(
+      (await server.inject({ url: "/v1/search?q=Tea&kind=extract" })).json().results,
+    ).toHaveLength(1);
+    expect(
+      (await server.inject({ method: "DELETE", url: `/v1/extractions/${extraction.id}` })).json(),
+    ).toEqual({ deleted: true });
+    expect((await server.inject({ url: `/v1/extractions/${extraction.id}` })).statusCode).toBe(404);
+    expect(
+      (await server.inject({ url: "/v1/search?q=Tea&kind=extract" })).json().results,
+    ).toHaveLength(0);
+    expect(await server.store.list("data/search")).toEqual([]);
     expect(
       (
         await server.inject({

@@ -16,6 +16,10 @@ lexical evidence, not proof that the model associated a value with the correct
 field. Boolean/inferred values and unsupported values remain uncertain. Missing
 optional schema fields are reported explicitly. The model cannot invent its own
 citations because evidence is computed after extraction from the captured text.
+`GET /v1/extractions/:id` retrieves the retained result and its field evidence,
+including URL-only jobs whose temporary browser has already closed.
+`DELETE /v1/extractions/:id` removes that result and its search entry. Both
+operations require record ownership and any retained session access policy.
 
 The page URL, source and time are captured together. Form controls, editable
 regions, scripts and marked secret fields are removed before model input.
@@ -44,7 +48,7 @@ diff evidence in history and notifications. A visual change can trigger the
 resets the baseline. A missing/expired baseline establishes a new baseline.
 
 Snapshot and search records expire after 30 days. Access is checked against the
-record owner and the current session access policy when the session still exists.
+record owner and the retained session access policy, including after the browser is released.
 
 ## Vault-assisted filling
 
@@ -71,7 +75,8 @@ installed, authenticated 1Password CLI). References can have `expiresAt`.
 value. `POST /v1/sessions/:id/vault/fill` takes
 `{reference,selector,frameUrl?}` and requires the active control lease. The top
 page and selected frame must both match the reference's exact HTTPS origin.
-The origin and target are checked again in the same page evaluation as the fill.
+Reference expiration and control ownership are checked again after retrieval;
+the origin and target are checked again in the same page evaluation as the fill.
 The operation never submits the form.
 
 Before filling, Steel enables private capture for the browser, stops recording,

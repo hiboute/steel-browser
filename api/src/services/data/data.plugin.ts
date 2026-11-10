@@ -393,6 +393,24 @@ const plugin: FastifyPluginAsync = async (server) => {
         },
       );
       routes.get(
+        "/extractions/:id",
+        { schema: { operationId: "get_retained_extraction", tags: ["Data"] } },
+        async (request, reply) => {
+          reply.header("Cache-Control", "private, no-store");
+          return records.get("extract", params(request), access.actor(request));
+        },
+      );
+      routes.delete(
+        "/extractions/:id",
+        { schema: { operationId: "delete_retained_extraction", tags: ["Data"] } },
+        async (request) => {
+          const id = params(request);
+          await records.remove("extract", id, access.actor(request));
+          await search.remove("extract", id);
+          return { deleted: true };
+        },
+      );
+      routes.get(
         "/artifacts/:id",
         { schema: { operationId: "get_processed_artifact", tags: ["Data"] } },
         async (request) => artifacts.get(params(request), access.actor(request)),

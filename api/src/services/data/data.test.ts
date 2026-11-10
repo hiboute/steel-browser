@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,7 +13,8 @@ import { VaultService } from "./vault.js";
 import { ArtifactService } from "./artifacts.js";
 import { createBrowserLogger } from "../cdp/instrumentation/browser-logger.js";
 import { BrowserEventType } from "../../types/enums.js";
-import { comparePixels } from "./page-diffs.js";
+import { comparePixels, PageDiffService } from "./page-diffs.js";
+import { markSensitiveSession } from "./privacy.js";
 
 const actor: DataActor = { id: "alice", role: "agent", authenticated: true };
 const operator: DataActor = { id: "operator", role: "operator", authenticated: true };
@@ -268,6 +269,96 @@ it("does not fill after human takeover while secret retrieval is pending", async
   expect(frame.evaluate).not.toHaveBeenCalled();
 });
 
+it("rechecks reference expiration after provider retrieval without sending the secret to Chrome", async () => {
+  const now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  const frame = {
+    url: () => "https://example.com/login",
+    evaluate: vi.fn().mockResolvedValue("filled"),
+  };
+  const page = { url: frame.url, mainFrame: () => frame };
+  const vault = new VaultService(
+    JSON.stringify({
+      login: {
+        provider: "env",
+        locator: "TEST_SECRET",
+        origin: "https://example.com",
+        selectors: ["#password"],
+        clients: [actor.id],
+        expiresAt: new Date(now + 1000).toISOString(),
+      },
+    }),
+    async () => {
+      clock.mockReturnValue(now + 1001);
+      return "expired-value-never-sent";
+    },
+  );
+  await expect(
+    vault.fill(page as never, actor, { reference: "login", selector: "#password" }),
+  ).rejects.toMatchObject({ code: "reference_expired" });
+  expect(frame.evaluate).not.toHaveBeenCalled();
+});
+
+it("returns a fixed retrieval error without provider diagnostics or secret values", async () => {
+  const frame = { url: () => "https://example.com/login", evaluate: vi.fn() };
+  const page = { url: frame.url, mainFrame: () => frame };
+  const vault = new VaultService(
+    JSON.stringify({
+      login: {
+        provider: "env",
+        locator: "TEST_SECRET",
+        origin: "https://example.com",
+        selectors: ["#password"],
+        clients: [actor.id],
+      },
+    }),
+    async () => {
+      throw new Error("provider leaked secret-value");
+    },
+  );
+  await expect(
+    vault.fill(page as never, actor, { reference: "login", selector: "#password" }),
+  ).rejects.toMatchObject({
+    code: "vault_unavailable",
+    message: "Secret provider could not resolve the approved reference",
+  });
+  expect(frame.evaluate).not.toHaveBeenCalled();
+});
+
+it("discards visual snapshots if private capture begins during the screenshot", async () => {
+  const root = await directory();
+  const sessionId = path.basename(root);
+  const store = new PlatformStore(root);
+  const removeStyle = vi.fn().mockResolvedValue(undefined);
+  const page = {
+    evaluate: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue({
+      url: "https://example.com",
+      observedAt: new Date().toISOString(),
+      text: "Safe source",
+      title: "Page",
+      blocks: [],
+      html: "<p>Safe source</p>",
+      secrets: [],
+    }),
+    addStyleTag: vi.fn().mockResolvedValue({ evaluate: removeStyle }),
+    screenshot: vi.fn(async () => {
+      markSensitiveSession(sessionId);
+      return Buffer.from("private image");
+    }),
+  };
+  const service = new PageDiffService(new DataRecords(store));
+  await expect(
+    service.capture(page as never, sessionId, actor, { visual: true }),
+  ).rejects.toMatchObject({ code: "sensitive_session" });
+  expect(await store.list("data/snapshot")).toEqual([]);
+  expect(removeStyle).toHaveBeenCalled();
+  page.screenshot.mockClear();
+  await expect(
+    service.capture(page as never, sessionId, actor, { visual: true }),
+  ).rejects.toMatchObject({ code: "sensitive_session" });
+  expect(page.screenshot).not.toHaveBeenCalled();
+});
+
 it("private browser capture stops console, storage and emitted CDP payloads including fill arguments", async () => {
   const info = vi.fn(),
     write = vi.fn(async () => {});
@@ -314,10 +405,8 @@ it("processes real PDF bytes in a bounded worker and rejects path escape or unsu
   const buffer = Buffer.from(document.saveToBuffer("").asUint8Array());
   document.destroy();
   await writeFile(path.join(files, "invoice.pdf"), buffer);
-  const artifacts = new ArtifactService(
-    new DataRecords(new PlatformStore(path.join(root, "data"))),
-    () => files,
-  );
+  const recordStore = new PlatformStore(path.join(root, "data"));
+  const artifacts = new ArtifactService(new DataRecords(recordStore), () => files);
   const result = await artifacts.process("session", actor, { path: "invoice.pdf" });
   expect(result.text).toContain("Invoice total 42");
   expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
@@ -339,6 +428,28 @@ it("processes real PDF bytes in a bounded worker and rejects path escape or unsu
   await writeFile(path.join(files, "bad.bin"), Buffer.from([0, 1, 2]));
   await expect(artifacts.process("session", actor, { path: "bad.bin" })).rejects.toMatchObject({
     code: "unsupported_artifact",
+  });
+  await writeFile(path.join(files, "malformed.pdf"), "%PDF-1.7\nnot a PDF object\n%%EOF");
+  await expect(
+    artifacts.process("session", actor, { path: "malformed.pdf" }),
+  ).rejects.toMatchObject({ code: "document_failed" });
+  await writeFile(path.join(files, "oversized.txt"), "");
+  await truncate(path.join(files, "oversized.txt"), 25 * 1024 * 1024 + 1);
+  await expect(
+    artifacts.process("session", actor, { path: "oversized.txt" }),
+  ).rejects.toMatchObject({ code: "invalid_artifact" });
+  const controller = new AbortController();
+  const listen = controller.signal.addEventListener.bind(controller.signal);
+  vi.spyOn(controller.signal, "addEventListener").mockImplementation((type, callback, options) => {
+    listen(type, callback, options);
+    if (type === "abort") queueMicrotask(() => controller.abort());
+  });
+  await expect(
+    artifacts.process("session", actor, { path: "invoice.pdf" }, controller.signal),
+  ).rejects.toMatchObject({ code: "cancelled" });
+  expect(await recordStore.list("data/artifact")).toHaveLength(1);
+  expect(await artifacts.process("session", actor, { path: "invoice.pdf" })).toMatchObject({
+    sha256: result.sha256,
   });
   await rm(path.join(files, "invoice.pdf"));
   await expect(artifacts.get(result.id, actor)).rejects.toMatchObject({ code: "source_deleted" });

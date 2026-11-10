@@ -68,6 +68,15 @@ it.skipIf(!chrome)(
           expect.objectContaining({ selector: "#price", after: "Price: 14" }),
         ]),
       });
+      await page.$eval("#price", (element) => element.remove());
+      const removed = await service.capture(page, "session", actor, options);
+      expect(await service.compare(after.id, removed.id, actor)).toMatchObject({
+        changed: true,
+        text: { removed: expect.arrayContaining(["Price: 14"]) },
+        structured: expect.arrayContaining([
+          { selector: "#price", before: "Price: 14", after: null },
+        ]),
+      });
       const vault = new VaultService(
         JSON.stringify({
           password: {

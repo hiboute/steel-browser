@@ -122,6 +122,8 @@ export class VaultService {
       );
     try {
       check();
+      if (reference.expiresAt && Date.parse(reference.expiresAt) <= Date.now())
+        throw new DataError("reference_expired", "Secret reference has expired", 409);
       registerSecretValue(secret);
       // Origin and field checks execute in the same browser turn as the fill. Navigation between
       // provider retrieval and evaluation cannot send the value to a redirected origin.

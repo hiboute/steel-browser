@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import * as mupdf from "mupdf";
 import { DataError, DataRecords, type DataActor, type DataRecord } from "./common.js";
 import { captureSource, type SourceBlock } from "./grounding.js";
+import { isSensitiveSession } from "./privacy.js";
 
 export interface SnapshotOptions {
   name?: string;
@@ -24,6 +25,15 @@ export interface PageSnapshot extends DataRecord {
 export class PageDiffService {
   constructor(private records: DataRecords) {}
   async capture(page: Page, sessionId: string, actor: DataActor, options: SnapshotOptions) {
+    const assertImageAllowed = () => {
+      if (options.visual && isSensitiveSession(sessionId))
+        throw new DataError(
+          "sensitive_session",
+          "Saved images are disabled after a vault fill",
+          409,
+        );
+    };
+    assertImageAllowed();
     let style: ElementHandle<HTMLStyleElement> | undefined;
     const selector = options.selector || "body";
     try {
@@ -56,6 +66,7 @@ export class PageDiffService {
       const image = options.visual
         ? Buffer.from(await page.screenshot({ type: "png", fullPage: false })).toString("base64")
         : undefined;
+      assertImageAllowed();
       if (image && image.length > 8_000_000)
         throw new DataError("image_too_large", "Snapshot image exceeds limit");
       const record = await this.records.create(

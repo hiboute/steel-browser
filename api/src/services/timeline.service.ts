@@ -97,16 +97,31 @@ export class TimelineService {
               const page = await activePage(session);
               if (page) {
                 const image = await screenshot(page);
-                const target = this.deps.store.path(`timeline/${id}/${entry.seq}.jpg`);
-                await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-                await writeFile(target, image, { mode: 0o600 });
-                entry.screenshot = true;
-                entry.url ??= page.url();
-                entry.title ??= await page.title();
+                if (!isSensitiveSession(id)) {
+                  const target = this.deps.store.path(`timeline/${id}/${entry.seq}.jpg`);
+                  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+                  await writeFile(target, image, { mode: 0o600 });
+                  entry.screenshot = true;
+                  entry.url ??= page.url();
+                  entry.title ??= await page.title();
+                }
               }
             } catch (error) {
-              this.deps.log(error);
+              this.deps.log(
+                isSensitiveSession(id) ? new Error("Private screenshot unavailable") : error,
+              );
             }
+          }
+        }
+        // Privacy can change while a screenshot or page metadata read is pending.
+        if (isSensitiveSession(id)) {
+          entry.args = { redacted: true };
+          entry.url = undefined;
+          entry.title = undefined;
+          entry.error = input.error ? "[private capture]" : undefined;
+          if (entry.screenshot) {
+            await rm(this.deps.store.path(`timeline/${id}/${entry.seq}.jpg`), { force: true });
+            entry.screenshot = false;
           }
         }
         entries.push(entry);

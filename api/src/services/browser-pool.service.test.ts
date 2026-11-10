@@ -172,3 +172,51 @@ describe("BrowserPool.allocatePorts", () => {
     expect(BrowserPool.allocatePorts(3, 9300)).toEqual([9300, 9301, 9302]);
   });
 });
+
+describe("BrowserPool fair admission", () => {
+  it("allows another client past a quota-blocked client while retaining its place", async () => {
+    const p = pool(2);
+    const active = new Set<string>();
+    const principal = (id: string) => id[0];
+    p.setSchedulingPolicy({
+      metadata: (id) => ({ principal: principal(id), weight: 1 }),
+      canAcquire: (id) => ![...active].some((other) => principal(other) === principal(id)),
+      acquired: (id) => {
+        active.add(id);
+      },
+      release: (id) => {
+        active.delete(id);
+      },
+    });
+    p.acquire("a1");
+    p.acquire("b1");
+    const a = p.acquireWhenAvailable("a2", { timeoutMs: 1000 });
+    const c = p.acquireWhenAvailable("c1", { timeoutMs: 1000 });
+    p.release("b1");
+    expect((await c)?.sessionId).toBe("c1");
+    expect(p.queue.map((r) => r.sessionId)).toEqual(["a2"]);
+    p.release("a1");
+    expect((await a)?.sessionId).toBe("a2");
+  });
+  it("interleaves queued clients according to configured weights", async () => {
+    const p = pool();
+    p.setSchedulingPolicy({
+      metadata: (id) => ({ principal: id[0], weight: id.startsWith("b") ? 2 : 1 }),
+      canAcquire: () => true,
+      acquired: () => {},
+      release: () => {},
+    });
+    p.acquire("z0");
+    const pending = ["a1", "a2", "b1", "b2"].map((id) =>
+      p.acquireWhenAvailable(id, { timeoutMs: 1000 }),
+    );
+    p.release("z0");
+    expect((await pending[2])?.sessionId).toBe("b1");
+    p.release("b1");
+    expect((await pending[0])?.sessionId).toBe("a1");
+    p.release("a1");
+    expect((await pending[3])?.sessionId).toBe("b2");
+    p.release("b2");
+    expect((await pending[1])?.sessionId).toBe("a2");
+  });
+});

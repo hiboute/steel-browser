@@ -23,6 +23,7 @@ export async function handleCastSession(
   session: Session,
   params: Record<string, string> | undefined,
   onActivity: () => void = () => {},
+  assertControl: () => void = () => {},
 ): Promise<void> {
   // The idle session is the primary browser between sessions: it runs and can
   // be watched like a live one. Only a released session has no browser.
@@ -279,7 +280,12 @@ export async function handleCastSession(
         targetPage = targetResult.page;
         targetPageId = targetResult.pageId;
 
-        await targetPage.bringToFront();
+        try {
+          assertControl();
+          await targetPage.bringToFront();
+        } catch {
+          /* Observers never focus the page. */
+        }
 
         targetClient = await targetPage.target().createCDPSession();
 
@@ -292,6 +298,19 @@ export async function handleCastSession(
               | CloseTabEvent
               | GetSelectedTextEvent = JSON.parse(message.toString());
             const { type } = data;
+            if (type !== "getSelectedText") {
+              try {
+                assertControl();
+              } catch {
+                ws.send(
+                  JSON.stringify({
+                    type: "controlRequired",
+                    message: "Browser control expired or transferred",
+                  }),
+                );
+                return;
+              }
+            }
 
             if (!targetClient || !targetPage) {
               console.error("No target page or client available for input handling");

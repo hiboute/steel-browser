@@ -6,6 +6,7 @@ import type { CDPService } from "../services/cdp/cdp.service.js";
 import type { Session } from "../services/session.service.js";
 
 export interface WebSocketHandlerContext {
+  assertControl?: () => void;
   fastify: FastifyInstance;
   wss: WebSocketServer;
   params: Record<string, string>;

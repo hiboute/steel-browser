@@ -1,3 +1,4 @@
+import nextPlatformPlugin from "./services/control/next-platform.plugin.js";
 import extrasPlugin from "./services/extras.plugin.js";
 import platformPlugin from "./services/platform/platform.plugin.js";
 import cookieHealthPlugin from "./services/cookie-health.service.js";
@@ -88,12 +89,11 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   await fastify.register(browserSessionPlugin);
   await fastify.register(cookieLibraryPlugin);
   await fastify.register(platformPlugin);
+  await fastify.register(nextPlatformPlugin);
   await fastify.register(cookieHealthPlugin);
   await fastify.register(agentFeaturesPlugin);
   fastify.sessionService.setIdleExemption(
-    (id) =>
-      fastify.handoffs.isWaiting(id) ||
-      (!!fastify.commandEngine?.busy() && fastify.browserPool.primary.sessionId === id),
+    (id) => fastify.handoffs.isWaiting(id) || fastify.sessionCommands.busy(id),
   );
   fastify.sessionService.setParkGuard((id) => fastify.handoffs.isWaiting(id));
   fastify.sessionService.setEgressResolver((name) => fastify.egress.resolve(name));
@@ -130,10 +130,15 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   await fastify.register(extrasPlugin);
 
   // Routes
-  const commands = env.ENABLE_COMMANDS_API
-    ? await import("./modules/commands/commands.routes.js")
-    : null;
-  fastify.decorate("commandEngine", commands ? commands.createCommandEngine(fastify) : null);
+  const commands = await import("./modules/commands/commands.routes.js");
+  fastify.decorate("commandEngine", {
+    getter() {
+      const session = fastify.sessionService.activeSession;
+      return session.status === "live" && !session.isSelenium
+        ? fastify.sessionCommands.get(session.id)
+        : null;
+    },
+  });
   await fastify.register(actionsRoutes, { prefix: "/v1" });
   await fastify.register(sessionsRoutes, { prefix: "/v1" });
   await fastify.register(cdpRoutes, { prefix: "/v1" });

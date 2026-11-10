@@ -45,7 +45,16 @@ const SessionSettings = z.object({
   onExpire: z.enum(["park", "release"]).optional(),
   keepAlive: z.boolean().optional().describe("Exempt from idle expiry, but not maximum lifetime"),
 });
-const CreateSession = SessionSettings.extend({
+export const CreateSession = SessionSettings.extend({
+  identityProfile: z.string().max(128).optional(),
+  compatibilityMode: z.enum(["native", "compatible", "legacy"]).optional(),
+  siteProfile: z.string().max(128).optional(),
+  mobileProfile: z.string().max(128).optional(),
+  continuityPolicy: z.enum(["warn", "require-confirmation"]).optional(),
+  continuityToken: z.string().max(2048).optional(),
+  frictionDetection: z.boolean().optional(),
+  egressPolicy: z.enum(["standard", "strict"]).optional(),
+  siteScope: z.string().url().optional(),
   egress: z.string().max(128).optional(),
   record: z.boolean().optional(),
   cookieSetWriteBack: z.boolean().optional(),
@@ -148,6 +157,7 @@ const CreateSession = SessionSettings.extend({
 });
 
 const SessionDetails = z.object({
+  ownerId: z.string().optional(),
   id: z.string().uuid().describe("Unique identifier for the session"),
   createdAt: z.string().datetime().describe("Timestamp when the session started"),
   status: z

@@ -3,8 +3,13 @@ import { getErrors } from "../../utils/errors.js";
 import { CreateSessionRequest, SessionDetails, SessionStreamRequest } from "./sessions.schema.js";
 import { CookieData } from "../../services/context/types.js";
 import { getUrl, getBaseUrl, getSessionUrl } from "../../utils/url.js";
-import { SessionPoolFullError, type Session } from "../../services/session.service.js";
+import {
+  BrowserProfileInUseError,
+  SessionPoolFullError,
+  type Session,
+} from "../../services/session.service.js";
 import { CookieSetNotFoundError } from "../../services/cookie-library.service.js";
+import { NordVpnError, nordVpnProxy } from "../../services/nordvpn.service.js";
 
 export const handleLaunchBrowserSession = async (
   server: FastifyInstance,
@@ -17,6 +22,8 @@ export const handleLaunchBrowserSession = async (
       proxyUrl,
       userDataDir,
       persist,
+      browserProfile,
+      vpn,
       userAgent,
       sessionContext,
       extensions,
@@ -51,11 +58,22 @@ export const handleLaunchBrowserSession = async (
       };
     }
 
+    let upstream = proxyUrl;
+    let proxyLabel: string | undefined;
+    if (vpn) {
+      if (proxyUrl) throw new NordVpnError("Pass either proxyUrl or vpn, not both.");
+      const nord = await nordVpnProxy(vpn.country);
+      upstream = nord.url;
+      proxyLabel = vpn.country ? `${nord.label} (${vpn.country.toUpperCase()})` : nord.label;
+    }
+
     return await server.sessionService.startSession({
       sessionId,
-      proxyUrl,
+      proxyUrl: upstream,
+      proxyLabel,
       userDataDir,
       persist,
+      browserProfile,
       userAgent,
       sessionContext: mergedContext,
       extensions,
@@ -76,7 +94,13 @@ export const handleLaunchBrowserSession = async (
     server.log.error({ err: e }, "Failed lauching browser session");
     const error = getErrors(e);
     const status =
-      e instanceof SessionPoolFullError ? 429 : e instanceof CookieSetNotFoundError ? 400 : 500;
+      e instanceof SessionPoolFullError
+        ? 429
+        : e instanceof BrowserProfileInUseError
+          ? 409
+          : e instanceof CookieSetNotFoundError || e instanceof NordVpnError
+            ? 400
+            : 500;
     return reply.code(status).send({ success: false, message: error });
   }
 };

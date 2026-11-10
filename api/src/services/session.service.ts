@@ -1,5 +1,5 @@
 import { FastifyBaseLogger } from "fastify";
-import { mkdir, rm } from "fs/promises";
+import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import os from "os";
 import path, { dirname } from "path";
 import { fileURLToPath } from "url";
@@ -32,6 +32,21 @@ export type Session = SessionDetails & {
   /** Pool slot index, or -1 for the idle placeholder. */
   slot: number;
 };
+
+export const BROWSER_PROFILE_NAME = /^[a-zA-Z0-9._-]{1,64}$/;
+/** steel-fingerprint.json in a saved browser's dir: its fingerprint, reused on every start. */
+export const PROFILE_FINGERPRINT_FILE = "steel-fingerprint.json";
+
+/** Where saved browsers (persistent Chrome profiles) live, one directory per name. */
+export function browserProfilesDir(): string {
+  return env.BROWSER_PROFILES_DIR || path.join(process.cwd(), "browser-profiles");
+}
+
+export class BrowserProfileInUseError extends Error {
+  constructor(name: string, sessionId: string) {
+    super(`Saved browser "${name}" is in use by session ${sessionId}. Release it first.`);
+  }
+}
 
 export class SessionPoolFullError extends Error {
   constructor(maxSessions: number) {
@@ -84,6 +99,32 @@ export class SessionService {
   private idleSession: Session;
   /** Throwaway profile directories by session id, deleted on release. */
   private ephemeralProfiles = new Map<string, string>();
+  /** Saved browser name -> the session holding it (one Chrome per profile). */
+  private profileLocks = new Map<string, string>();
+
+  /** The session holding a saved browser, if any. */
+  public profileHolder(name: string): string | undefined {
+    return this.profileLocks.get(name);
+  }
+
+  /** The saved browser a session holds, if any. */
+  public profileOf(sessionId: string): string | undefined {
+    for (const [name, holder] of this.profileLocks) if (holder === sessionId) return name;
+    return undefined;
+  }
+
+  /** Takes a saved browser for a session; throws BrowserProfileInUseError if another holds it. */
+  public lockProfile(name: string, sessionId: string): void {
+    const holder = this.profileLocks.get(name);
+    if (holder !== undefined && holder !== sessionId) throw new BrowserProfileInUseError(name, holder);
+    this.profileLocks.set(name, sessionId);
+  }
+
+  /** Lets go of whatever saved browser a session holds. */
+  public unlockProfile(sessionId: string): void {
+    const name = this.profileOf(sessionId);
+    if (name !== undefined) this.profileLocks.delete(name);
+  }
 
   constructor(config: {
     browserPool: BrowserPool;
@@ -176,7 +217,11 @@ export class SessionService {
     sessionId: string,
     persist: boolean | undefined,
     custom?: string,
+    browserProfile?: string,
   ): { dir: string; ephemeral: boolean } {
+    if (browserProfile !== undefined) {
+      return { dir: path.join(browserProfilesDir(), browserProfile), ephemeral: false };
+    }
     if (custom || persist === true) {
       const suffix = slot.index === 0 ? "" : `-${slot.index}`;
       return {
@@ -196,6 +241,8 @@ export class SessionService {
   public async startSession(options: {
     sessionId?: string;
     proxyUrl?: string;
+    /** Shown as the session's proxy instead of proxyUrl (which may carry credentials). */
+    proxyLabel?: string;
     userAgent?: string;
     sessionContext?: {
       cookies?: CookieData[];
@@ -206,6 +253,8 @@ export class SessionService {
     logSinkUrl?: string;
     userDataDir?: string;
     persist?: boolean;
+    /** Saved browser: a named persistent Chrome profile under BROWSER_PROFILES_DIR. */
+    browserProfile?: string;
     blockAds?: boolean;
     optimizeBandwidth?: boolean | OptimizeBandwidthOptions;
     extensions?: string[];
@@ -229,7 +278,6 @@ export class SessionService {
       extensions,
       logSinkUrl,
       dimensions,
-      fingerprint,
       isSelenium,
       blockAds,
       optimizeBandwidth,
@@ -249,10 +297,20 @@ export class SessionService {
     if (this.sessions.has(sessionId)) {
       throw new Error(`Session ${sessionId} is already live`);
     }
+    const browserProfile = options.browserProfile;
+    if (browserProfile !== undefined) {
+      if (!BROWSER_PROFILE_NAME.test(browserProfile)) {
+        throw new Error("Saved browser names are 1-64 letters, digits, '.', '_' or '-'.");
+      }
+      if (isSelenium) throw new Error("Saved browsers do not work with Selenium sessions.");
+      this.lockProfile(browserProfile, sessionId);
+    }
+    let fingerprint = options.fingerprint;
 
     // Selenium drives the primary browser's display, so it can only use slot 0.
     const slot = this.browserPool.acquire(sessionId, { primaryOnly: !!isSelenium });
     if (!slot) {
+      this.unlockProfile(sessionId);
       throw new SessionPoolFullError(this.browserPool.maxSessions);
     }
     const cdpService = slot.cdpService;
@@ -289,7 +347,7 @@ export class SessionService {
         ...defaultSession,
         ...sessionStats,
         status: "live",
-        proxy: proxyUrl ?? "",
+        proxy: options.proxyLabel ?? proxyUrl ?? "",
         solveCaptcha: false,
         dimensions: finalDimensions,
         isSelenium: !!isSelenium,
@@ -300,13 +358,33 @@ export class SessionService {
         proxyServer: undefined,
         cdpService,
         slot: slot.index,
+        ...(browserProfile !== undefined ? { browserProfile } : {}),
       };
       this.sessions.set(sessionId, session);
 
-      const profile = this.userDataDirFor(slot, sessionId, options.persist, options.userDataDir);
+      const profile = this.userDataDirFor(
+        slot,
+        sessionId,
+        options.persist,
+        options.userDataDir,
+        browserProfile,
+      );
       const userDataDir = profile.dir;
       if (profile.ephemeral) this.ephemeralProfiles.set(sessionId, userDataDir);
       await mkdir(userDataDir, { recursive: true });
+      if (browserProfile !== undefined) {
+        // A Chrome that died without closing leaves its lock behind; we hold
+        // the only claim on this profile, so it is stale.
+        for (const lock of ["SingletonLock", "SingletonSocket", "SingletonCookie"]) {
+          await rm(path.join(userDataDir, lock), { force: true }).catch(() => undefined);
+        }
+        // Same device every time: reuse the fingerprint this browser first got.
+        if (!fingerprint && !skipFingerprintInjection) {
+          fingerprint = await readFile(path.join(userDataDir, PROFILE_FINGERPRINT_FILE), "utf8")
+            .then((raw) => JSON.parse(raw) as BrowserFingerprintWithHeaders)
+            .catch(() => undefined);
+        }
+      }
 
       const defaultUserPreferences = {
         plugins: {
@@ -381,6 +459,18 @@ export class SessionService {
         });
       } else {
         await cdpService.startNewSession(browserLauncherOptions);
+        if (browserProfile !== undefined && !fingerprint && !skipFingerprintInjection) {
+          const generated = cdpService.getFingerprintData();
+          if (generated) {
+            await writeFile(
+              path.join(userDataDir, PROFILE_FINGERPRINT_FILE),
+              JSON.stringify(generated),
+              { mode: 0o600 },
+            ).catch((err) =>
+              this.logger.warn({ err }, `[SessionService] Could not save the fingerprint of ${browserProfile}`),
+            );
+          }
+        }
 
         Object.assign(session, {
           // The primary browser keeps the stock URLs so single-session clients
@@ -400,6 +490,7 @@ export class SessionService {
       return session;
     } catch (error) {
       void this.removeProfile(sessionId);
+      this.unlockProfile(sessionId);
       const session = this.sessions.get(sessionId);
       this.sessions.delete(sessionId);
       this.browserPool.release(sessionId);
@@ -447,6 +538,7 @@ export class SessionService {
       }
 
       await this.removeProfile(session.id);
+      this.unlockProfile(session.id);
       if (this.sessions.size === 0) {
         this.idleSession = this.makeIdleSession();
       }

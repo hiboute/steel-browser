@@ -73,6 +73,24 @@ const CreateSession = z.object({
   logSinkUrl: z.string().optional().describe("Deprecated: Log sink URL to use for the session"),
   extensions: z.array(z.string()).optional().describe("Extensions to use for the session"),
   persist: z.boolean().optional().describe("Flag to indicate if session should be persisted"),
+  vpn: z
+    .object({
+      provider: z.literal("nordvpn"),
+      country: z
+        .string()
+        .regex(/^[A-Za-z]{2}$/)
+        .optional()
+        .describe("Two-letter country code of the exit (default: NordVPN's recommended server)"),
+    })
+    .optional()
+    .describe("Route the session through a VPN (instead of proxyUrl)."),
+  browserProfile: z
+    .string()
+    .regex(/^[a-zA-Z0-9._-]{1,64}$/)
+    .optional()
+    .describe(
+      "Saved browser: run the session in this named, persistent Chrome profile (created on first use). It keeps cookies, storage and its fingerprint across sessions, so sites see the same device. One live session per profile.",
+    ),
   userDataDir: z.string().optional().describe("User data directory path to use for the session"),
   timezone: z.string().optional().describe("Timezone to use for the session"),
   dimensions: z
@@ -130,6 +148,7 @@ const SessionDetails = z.object({
   solveCaptcha: z.boolean().optional().describe("Indicates if captcha solving is enabled"),
   isSelenium: z.boolean().optional().describe("Indicates if Selenium is used in the session"),
   deviceConfig: deviceConfigSchema,
+  browserProfile: z.string().optional().describe("Saved browser profile the session runs in"),
 });
 
 const ReleaseSession = SessionDetails.merge(

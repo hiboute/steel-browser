@@ -19,4 +19,8 @@ chown 1000:1000 /state
 node --input-type=module -e 'import{writeFileSync}from"node:fs";writeFileSync("/run/steel/strict-egress.json",JSON.stringify({version:1,boundary:"linux-output-firewall",proxyHost:process.env.STEEL_STRICT_PROXY_IP,proxyPort:Number(process.env.STEEL_STRICT_PROXY_PORT),uid:1000,ipv6:"blocked",dns:"blocked"}),{mode:0o644})'
 export STEEL_WORKER_STRICT=true
 export STEEL_WORKER_STATE_DIR=/state
-exec setpriv --reuid=1000 --regid=1000 --init-groups --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs node /app/workers/worker.mjs
+# setpriv changes credentials but retains root's HOME. Firefox/WebKit need the
+# target user's writable cache/config home, without restoring any capabilities.
+worker_user_home=$(getent passwd 1000 | cut -d: -f6)
+test -n "$worker_user_home" && test "$worker_user_home" != /root && test -d "$worker_user_home"
+exec setpriv --reuid=1000 --regid=1000 --init-groups --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs env HOME="$worker_user_home" node /app/workers/worker.mjs

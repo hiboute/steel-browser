@@ -8,7 +8,27 @@ const server = Fastify({ logger: false });
 try {
   await server.register(steelBrowserPlugin);
   await server.ready();
-  await writeFile("./openapi/schemas.json", JSON.stringify(server.swagger(), null, 2), "utf8");
+  const document = server.swagger();
+  // Fail before replacing the checked-in contract when route schemas contain
+  // unresolved Fastify IDs or broken JSON pointers. Client generators can
+  // otherwise report success while silently retaining an obsolete client.
+  function validateReferences(value: unknown): void {
+    if (!value || typeof value !== "object") return;
+    if ("$ref" in value && typeof value.$ref === "string") {
+      const ref = value.$ref;
+      if (!ref.startsWith("#/")) throw new Error(`Unresolved OpenAPI reference: ${ref}`);
+      const resolved = ref.slice(2).split("/").reduce<unknown>((node, key) => {
+        const decoded = key.replace(/~1/g, "/").replace(/~0/g, "~");
+        return node && typeof node === "object"
+          ? (node as Record<string, unknown>)[decoded]
+          : undefined;
+      }, document);
+      if (resolved === undefined) throw new Error(`Missing OpenAPI reference: ${ref}`);
+    }
+    for (const child of Object.values(value)) validateReferences(child);
+  }
+  validateReferences(document);
+  await writeFile("./openapi/schemas.json", JSON.stringify(document, null, 2), "utf8");
   console.log("OpenAPI JSON has been written to schemas.json");
 } finally {
   await server.close();

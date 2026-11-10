@@ -47,12 +47,18 @@ Raw Chromium profiles, downloads and JPEG images are ordinary files protected by
 the volume's access controls; the JSON envelope does not encrypt those files.
 Keep the configured keys across redeployments so persisted data remains readable.
 
-Requests may identify a caller with `X-Steel-Client`, at most 128 characters, for
-example `mcp:person@example.com`, `harness:person`, or `ui`. Omission means
-`anonymous`. This is attribution and cookie-set policy, not authentication. Keep
-the API behind the existing authentication/network boundary. The public viewer's
-reverse proxy should replace this header with `ui`; MCP supplies its own caller
-identity on the internal lane.
+Production callers authenticate with a configured bearer token or the verified
+gateway proof described in [NEXT-PLATFORM.md](NEXT-PLATFORM.md). Human gateways
+and MCP use distinct proofs: an agent cannot approve its own review even when it
+acts for the same person. `X-Steel-Client` remains optional attribution and never
+grants access. Existing resources without a verified owner remain operator-only.
+
+Acquire a session control lease before browser mutations and send its token in
+`X-Steel-Control`. Human takeover fences previous tokens and pauses agent work.
+Workshop and the companion MCP manage these leases; raw API clients must follow
+the control endpoints in [NEXT-PLATFORM.md](NEXT-PLATFORM.md). With no credentials
+configured, the API is an unauthenticated local operator and must not be exposed
+publicly.
 
 ## Session lifetime, queue and parking
 

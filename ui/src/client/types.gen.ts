@@ -139,6 +139,15 @@ export type CreateSession = {
    * Exempt from idle expiry, but not maximum lifetime
    */
   keepAlive?: boolean;
+  identityProfile?: string;
+  compatibilityMode?: "native" | "compatible" | "legacy";
+  siteProfile?: string;
+  mobileProfile?: string;
+  continuityPolicy?: "warn" | "require-confirmation";
+  continuityToken?: string;
+  frictionDetection?: boolean;
+  egressPolicy?: "standard" | "strict";
+  siteScope?: string;
   egress?: string;
   record?: boolean;
   cookieSetWriteBack?: boolean;
@@ -415,6 +424,7 @@ export type SessionSettings = {
  * SessionDetails
  */
 export type SessionDetails = {
+  ownerId?: string;
   /**
    * Unique identifier for the session
    */
@@ -532,6 +542,7 @@ export type SessionDetails = {
  */
 export type MultipleSessions = {
   sessions: Array<{
+    ownerId?: string;
     /**
      * Unique identifier for the session
      */
@@ -784,6 +795,7 @@ export type RecordedEvents = {
  * ReleaseSession
  */
 export type ReleaseSession = {
+  ownerId?: string;
   /**
    * Unique identifier for the session
    */
@@ -1190,6 +1202,3098 @@ export type MultipleFiles = {
 };
 
 /**
+ * CommandRequest
+ */
+export type CommandRequest = {
+  after?: string;
+  commands:
+    | {
+        command: "navigate";
+        url: string;
+        tab?: string;
+      }
+    | {
+        command: "back";
+        tab?: string;
+      }
+    | {
+        command: "forward";
+        tab?: string;
+      }
+    | {
+        command: "reload";
+        tab?: string;
+      }
+    | {
+        command: "snapshot";
+        tab?: string;
+        interactive?: boolean;
+        compact?: boolean;
+        depth?: number;
+      }
+    | {
+        command: "click";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "dblclick";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "hover";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "focus";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "type";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+        text: string;
+        clear?: boolean;
+        delay?: number;
+      }
+    | {
+        command: "fill";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+        value: string;
+      }
+    | {
+        command: "press";
+        key: string;
+        target?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "keydown";
+        key: string;
+        tab?: string;
+      }
+    | {
+        command: "keyup";
+        key: string;
+        tab?: string;
+      }
+    | {
+        command: "mouse";
+        action: "move" | "down" | "up" | "click" | "wheel";
+        x?: number;
+        y?: number;
+        button?: "left" | "right" | "middle";
+        clicks?: number;
+        deltaX?: number;
+        deltaY?: number;
+        tab?: string;
+      }
+    | {
+        command: "select";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+        values: string | Array<string>;
+      }
+    | {
+        command: "check";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "upload";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+        files: string | Array<string>;
+      }
+    | {
+        command: "drag";
+        source:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+      }
+    | {
+        command: "uncheck";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "get";
+        what:
+          | "text"
+          | "html"
+          | "markdown"
+          | "value"
+          | "attr"
+          | "title"
+          | "url"
+          | "count"
+          | "box"
+          | "locator";
+        target?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        attribute?: string;
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "is";
+        what: "visible" | "enabled" | "checked";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "wait";
+        target?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        state?: "visible" | "hidden" | "attached" | "detached";
+        text?: string;
+        url?: string;
+        load?: "load" | "domcontentloaded" | "networkidle";
+        ms?: number;
+        download?: true;
+        timeout?: number;
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "screenshot";
+        target?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        fullPage?: boolean;
+        format?: "png" | "jpeg" | "webp";
+        quality?: number;
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "eval";
+        script: string;
+        timeout?: number;
+        tab?: string;
+      }
+    | {
+        command: "pdf";
+        tab?: string;
+        landscape?: boolean;
+        printBackground?: boolean;
+      }
+    | {
+        command: "scroll";
+        direction?: "up" | "down" | "left" | "right";
+        amount?: number;
+        target?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+        expect?: {
+          role?: string;
+          name?: string;
+        };
+      }
+    | {
+        command: "find";
+        target:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            };
+        tab?: string;
+        frame?:
+          | string
+          | {
+              role?: string;
+              name?: string;
+              text?: string;
+              label?: string;
+              placeholder?: string;
+              alt?: string;
+              title?: string;
+              testid?: string;
+              css?: string;
+              exact?: boolean;
+              nth?: number;
+            }
+          | Array<
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+            >;
+      }
+    | {
+        command: "tab";
+        action: "list" | "new" | "close";
+        tab?: string;
+        url?: string;
+      }
+    | Array<
+        | {
+            command: "navigate";
+            url: string;
+            tab?: string;
+          }
+        | {
+            command: "back";
+            tab?: string;
+          }
+        | {
+            command: "forward";
+            tab?: string;
+          }
+        | {
+            command: "reload";
+            tab?: string;
+          }
+        | {
+            command: "snapshot";
+            tab?: string;
+            interactive?: boolean;
+            compact?: boolean;
+            depth?: number;
+          }
+        | {
+            command: "click";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "dblclick";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "hover";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "focus";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "type";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+            text: string;
+            clear?: boolean;
+            delay?: number;
+          }
+        | {
+            command: "fill";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+            value: string;
+          }
+        | {
+            command: "press";
+            key: string;
+            target?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "keydown";
+            key: string;
+            tab?: string;
+          }
+        | {
+            command: "keyup";
+            key: string;
+            tab?: string;
+          }
+        | {
+            command: "mouse";
+            action: "move" | "down" | "up" | "click" | "wheel";
+            x?: number;
+            y?: number;
+            button?: "left" | "right" | "middle";
+            clicks?: number;
+            deltaX?: number;
+            deltaY?: number;
+            tab?: string;
+          }
+        | {
+            command: "select";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+            values: string | Array<string>;
+          }
+        | {
+            command: "check";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "upload";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+            files: string | Array<string>;
+          }
+        | {
+            command: "drag";
+            source:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+          }
+        | {
+            command: "uncheck";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "get";
+            what:
+              | "text"
+              | "html"
+              | "markdown"
+              | "value"
+              | "attr"
+              | "title"
+              | "url"
+              | "count"
+              | "box"
+              | "locator";
+            target?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            attribute?: string;
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "is";
+            what: "visible" | "enabled" | "checked";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "wait";
+            target?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            state?: "visible" | "hidden" | "attached" | "detached";
+            text?: string;
+            url?: string;
+            load?: "load" | "domcontentloaded" | "networkidle";
+            ms?: number;
+            download?: true;
+            timeout?: number;
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "screenshot";
+            target?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            fullPage?: boolean;
+            format?: "png" | "jpeg" | "webp";
+            quality?: number;
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "eval";
+            script: string;
+            timeout?: number;
+            tab?: string;
+          }
+        | {
+            command: "pdf";
+            tab?: string;
+            landscape?: boolean;
+            printBackground?: boolean;
+          }
+        | {
+            command: "scroll";
+            direction?: "up" | "down" | "left" | "right";
+            amount?: number;
+            target?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+            expect?: {
+              role?: string;
+              name?: string;
+            };
+          }
+        | {
+            command: "find";
+            target:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                };
+            tab?: string;
+            frame?:
+              | string
+              | {
+                  role?: string;
+                  name?: string;
+                  text?: string;
+                  label?: string;
+                  placeholder?: string;
+                  alt?: string;
+                  title?: string;
+                  testid?: string;
+                  css?: string;
+                  exact?: boolean;
+                  nth?: number;
+                }
+              | Array<
+                  | string
+                  | {
+                      role?: string;
+                      name?: string;
+                      text?: string;
+                      label?: string;
+                      placeholder?: string;
+                      alt?: string;
+                      title?: string;
+                      testid?: string;
+                      css?: string;
+                      exact?: boolean;
+                      nth?: number;
+                    }
+                >;
+          }
+        | {
+            command: "tab";
+            action: "list" | "new" | "close";
+            tab?: string;
+            url?: string;
+          }
+      >;
+  observe?: {
+    mode: "none" | "snapshot" | "diff";
+    base?: string;
+    tab?: string;
+    interactive?: boolean;
+    compact?: boolean;
+    depth?: number;
+  };
+};
+
+/**
+ * CommandResponse
+ */
+export type CommandResponse = {
+  /**
+   * The id of this execution. Use it in GET /v1/sessions/{sessionId}/commands/executions/{executionId} and POST /v1/sessions/{sessionId}/commands/executions/{executionId}/cancel.
+   */
+  id: string;
+  /**
+   * Send it as after in the next request.
+   */
+  next?: string;
+  /**
+   * Whether another commands client, a quick action, or a browser restart changed the session since after.
+   */
+  epochChanged?: boolean;
+  /**
+   * The tab the execution used.
+   */
+  page: {
+    tab: string;
+    url: string;
+    title: string;
+  } | null;
+  execution: {
+    id: string;
+    state: "queued" | "running" | "completed" | "failed" | "cancelled" | "timeout" | "expired";
+    /**
+     * What happened to the page: nothing, a change, or a possible change.
+     */
+    effect: "none" | "applied" | "unknown";
+    replayed: boolean;
+    /**
+     * Commands started.
+     */
+    ran: number;
+    error?: {
+      /**
+       * Error code, such as stale_ref or not_actionable.
+       */
+      code: string;
+      message: string;
+      /**
+       * More detail, such as covered or detached.
+       */
+      reason?: string;
+    };
+  };
+  /**
+   * Result of one command, with the fields of that command.
+   */
+  results: Array<
+    | {
+        command: "navigate";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        url?: string;
+      }
+    | {
+        command: "back";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * False when there was no history entry.
+         */
+        navigated?: boolean;
+        url?: string;
+      }
+    | {
+        command: "forward";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * False when there was no history entry.
+         */
+        navigated?: boolean;
+        url?: string;
+      }
+    | {
+        command: "reload";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        url?: string;
+      }
+    | {
+        command: "snapshot";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        snapshotId?: string;
+        snapshot?: string;
+      }
+    | {
+        command: "click";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "dblclick";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "hover";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+      }
+    | {
+        command: "focus";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+      }
+    | {
+        command: "type";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "fill";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "press";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "keydown";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "keyup";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "mouse";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "select";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * The values of the selected options.
+         */
+        selected?: Array<string>;
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "check";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        checked?: boolean;
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "uncheck";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        checked?: boolean;
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "upload";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        files?: Array<string>;
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "drag";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "get";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * A string for text, html, markdown, value, attr, title, and url. A number for count. { x, y, width, height } or null for box. A list of locators for locator.
+         */
+        value?: unknown;
+        /**
+         * The value is a secret, so it is left out.
+         */
+        masked?: boolean;
+      }
+    | {
+        command: "is";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        value?: boolean;
+      }
+    | {
+        command: "wait";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        waited?: "ms" | "target" | "text" | "url" | "load" | "download";
+        /**
+         * The downloaded file, for download.
+         */
+        file?: string;
+        bytes?: number;
+      }
+    | {
+        command: "screenshot";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        format?: "png" | "jpeg" | "webp";
+        data?: string;
+      }
+    | {
+        command: "eval";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        /**
+         * The result of the script as JSON.
+         */
+        value?: unknown;
+        /**
+         * A dialog that the command opened. It blocks the tab until it closes.
+         */
+        dialog?: {
+          id: string;
+          tab: string;
+          type: "alert" | "confirm" | "prompt" | "beforeunload";
+          message: string;
+          defaultPrompt?: string;
+        };
+        /**
+         * The command started a navigation that was still loading when it returned.
+         */
+        loading?: boolean;
+      }
+    | {
+        command: "pdf";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        format?: "pdf";
+        data?: string;
+      }
+    | {
+        command: "scroll";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        moved?: boolean;
+        x?: number;
+        y?: number;
+      }
+    | {
+        command: "find";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        count?: number;
+        matches?: Array<{
+          ref: string;
+          role: string;
+          name: string;
+        }>;
+      }
+    | {
+        command: "tab";
+        ok: boolean;
+        /**
+         * What happened to the page: nothing, a change, or a possible change.
+         */
+        effect: "none" | "applied" | "unknown";
+        error?: {
+          /**
+           * Error code, such as stale_ref or not_actionable.
+           */
+          code: string;
+          message: string;
+          /**
+           * More detail, such as covered or detached.
+           */
+          reason?: string;
+        };
+        tabs?: Array<{
+          tab: string;
+          url: string;
+          title: string;
+        }>;
+        tab?: string;
+      }
+  >;
+  observe?: {
+    snapshotId?: string;
+    snapshot?: string;
+    base?: string;
+    diff?: string;
+    additions?: number;
+    removals?: number;
+    full?: boolean;
+    error?: {
+      /**
+       * Error code, such as stale_ref or not_actionable.
+       */
+      code: string;
+      message: string;
+      /**
+       * More detail, such as covered or detached.
+       */
+      reason?: string;
+    };
+  };
+  /**
+   * A dialog that is open on the tab and blocks it until it closes.
+   */
+  dialog?: {
+    id: string;
+    tab: string;
+    type: "alert" | "confirm" | "prompt" | "beforeunload";
+    message: string;
+    defaultPrompt?: string;
+  };
+  bodyExpired?: boolean;
+};
+
+/**
+ * CommandRequestError
+ */
+export type CommandRequestError = {
+  error: {
+    code: string;
+    message: string;
+  };
+  [key: string]: unknown;
+};
+
+/**
+ * CommandsSchemaResponse
+ */
+export type CommandsSchemaResponse = {
+  version: number;
+  /**
+   * JSON Schema of the request body.
+   */
+  schema: {
+    [key: string]: unknown;
+  };
+};
+
+/**
  * CreateHandoff
  */
 export type CreateHandoff = {
@@ -1461,6 +4565,17 @@ export type ExtractResponse = {
     [key: string]: unknown;
   };
   markdown?: string;
+  extractionId?: string;
+  observedAt?: string;
+  evidence?: Array<{
+    path: string;
+    status: "grounded" | "uncertain" | "missing";
+    url: string;
+    observedAt: string;
+    excerpt?: string;
+    selector?: string;
+    reason?: string;
+  }>;
 };
 
 /**
@@ -1489,6 +4604,8 @@ export type WarmDetails = {
   refreshMinutes?: number;
   name: string;
   client?: string;
+  ownerId?: string;
+  ownerAuthenticated?: boolean;
   sessionId: string;
   status: "disabled" | "waiting" | "starting" | "live" | "error";
   lastStartedAt?: string;
@@ -1521,6 +4638,12 @@ export type WatcherSettings = {
       };
       prompt?: string;
     };
+  };
+  pageDiff?: {
+    selector?: string;
+    ignoreSelectors?: Array<string>;
+    ignorePatterns?: Array<string>;
+    visual?: boolean;
   };
   condition?: {
     type: "changed" | "contains" | "not_contains" | "matches" | "lt" | "gt" | "eq";
@@ -1560,6 +4683,12 @@ export type WatcherDetails = {
       prompt?: string;
     };
   };
+  pageDiff?: {
+    selector?: string;
+    ignoreSelectors?: Array<string>;
+    ignorePatterns?: Array<string>;
+    visual?: boolean;
+  };
   condition?: {
     type: "changed" | "contains" | "not_contains" | "matches" | "lt" | "gt" | "eq";
     value?: string | number | boolean;
@@ -1571,12 +4700,15 @@ export type WatcherDetails = {
   enabled?: boolean;
   id: string;
   client?: string;
+  ownerId?: string;
+  ownerAuthenticated?: boolean;
   createdAt: string;
   updatedAt: string;
   state: {
     lastRunAt?: string;
     nextRunAt: string;
     lastValue?: unknown;
+    lastSnapshotId?: string;
     consecutiveErrors: number;
     lastNotifiedAt?: string;
     lastErrorNotifiedAt?: string;
@@ -1592,6 +4724,8 @@ export type WatcherRun = {
   status: "ok" | "error" | "postponed";
   value?: unknown;
   matched?: boolean;
+  snapshotId?: string;
+  diff?: unknown;
   error?: string;
   code?: string;
   statusCode?: number;
@@ -1634,6 +4768,8 @@ export type WarmList = {
     refreshMinutes?: number;
     name: string;
     client?: string;
+    ownerId?: string;
+    ownerAuthenticated?: boolean;
     sessionId: string;
     status: "disabled" | "waiting" | "starting" | "live" | "error";
     lastStartedAt?: string;
@@ -1669,6 +4805,12 @@ export type WatcherList = {
         prompt?: string;
       };
     };
+    pageDiff?: {
+      selector?: string;
+      ignoreSelectors?: Array<string>;
+      ignorePatterns?: Array<string>;
+      visual?: boolean;
+    };
     condition?: {
       type: "changed" | "contains" | "not_contains" | "matches" | "lt" | "gt" | "eq";
       value?: string | number | boolean;
@@ -1680,12 +4822,15 @@ export type WatcherList = {
     enabled?: boolean;
     id: string;
     client?: string;
+    ownerId?: string;
+    ownerAuthenticated?: boolean;
     createdAt: string;
     updatedAt: string;
     state: {
       lastRunAt?: string;
       nextRunAt: string;
       lastValue?: unknown;
+      lastSnapshotId?: string;
       consecutiveErrors: number;
       lastNotifiedAt?: string;
       lastErrorNotifiedAt?: string;
@@ -1703,6 +4848,8 @@ export type WatcherHistory = {
     status: "ok" | "error" | "postponed";
     value?: unknown;
     matched?: boolean;
+    snapshotId?: string;
+    diff?: unknown;
     error?: string;
     code?: string;
     statusCode?: number;
@@ -1759,6 +4906,12 @@ export type WatcherPatch = {
       };
       prompt?: string;
     };
+  };
+  pageDiff?: {
+    selector?: string;
+    ignoreSelectors?: Array<string>;
+    ignorePatterns?: Array<string>;
+    visual?: boolean;
   };
   condition?: {
     type?: "changed" | "contains" | "not_contains" | "matches" | "lt" | "gt" | "eq";
@@ -2399,6 +5552,348 @@ export type GetMetricsResponses = {
   200: unknown;
 };
 
+export type GetBrowserControlData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/control";
+};
+
+export type GetBrowserControlResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type AcquireBrowserControlData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/control/acquire";
+};
+
+export type AcquireBrowserControlResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type RenewBrowserControlData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/control/renew";
+};
+
+export type RenewBrowserControlResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ReleaseBrowserControlData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/control/release";
+};
+
+export type ReleaseBrowserControlResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type TransferBrowserControlData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/control/transfer";
+};
+
+export type TransferBrowserControlResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type IssueBrowserControlTicketData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/control/ticket";
+};
+
+export type IssueBrowserControlTicketResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type AssignBrowserProfileOwnerData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/browser-profiles/{id}/owner";
+};
+
+export type AssignBrowserProfileOwnerResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListTaskRunsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/runs";
+};
+
+export type ListTaskRunsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type CreateTaskRunData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/runs";
+};
+
+export type CreateTaskRunResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetTaskRunData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/runs/{id}";
+};
+
+export type GetTaskRunResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type CancelTaskRunData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/runs/{id}/cancel";
+};
+
+export type CancelTaskRunResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ResumeTaskRunData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/runs/{id}/resume";
+};
+
+export type ResumeTaskRunResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListBrowserCheckpointsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/checkpoints";
+};
+
+export type ListBrowserCheckpointsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type CreateBrowserCheckpointData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/checkpoints";
+};
+
+export type CreateBrowserCheckpointResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DeleteBrowserCheckpointData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/checkpoints/{id}";
+};
+
+export type DeleteBrowserCheckpointResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetBrowserCheckpointData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/checkpoints/{id}";
+};
+
+export type GetBrowserCheckpointResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type BranchBrowserCheckpointData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/checkpoints/{id}/branch";
+};
+
+export type BranchBrowserCheckpointResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DiagnoseBrowserData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/diagnose";
+};
+
+export type DiagnoseBrowserResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetBrowserDiagnosisData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/diagnostics/{id}";
+};
+
+export type GetBrowserDiagnosisResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DownloadBrowserDiagnosisData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/diagnostics/{id}/bundle";
+};
+
+export type DownloadBrowserDiagnosisResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetBrowserBudgetsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/budgets";
+};
+
+export type GetBrowserBudgetsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ConfigureBrowserBudgetsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/budgets";
+};
+
+export type ConfigureBrowserBudgetsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
 export type GetHumanHandoffData = {
   body?: never;
   path: {
@@ -2915,6 +6410,666 @@ export type ListRecordingsResponses = {
 };
 
 export type ListRecordingsResponse = ListRecordingsResponses[keyof ListRecordingsResponses];
+
+export type InspectSessionIdentityData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/identity";
+};
+
+export type InspectSessionIdentityResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListIdentityProfilesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/identity-profiles";
+};
+
+export type ListIdentityProfilesResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DeleteIdentityProfileData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/identity-profiles/{name}";
+};
+
+export type DeleteIdentityProfileResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetIdentityProfileData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/identity-profiles/{name}";
+};
+
+export type GetIdentityProfileResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type SaveIdentityProfileData = {
+  body: {
+    expectedRevision?: number;
+    settings: {
+      compatibilityMode: "native" | "compatible" | "legacy";
+      userAgent?: string;
+      timezone?: string;
+      locale?: string;
+      dimensions?: {
+        width: number;
+        height: number;
+      };
+      headless?: boolean;
+      mobileProfile?: string;
+      egress?: string;
+    };
+    bindings?: {
+      browserProfile?: string;
+      cookieSets?: Array<string>;
+    };
+  };
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/identity-profiles/{name}";
+};
+
+export type SaveIdentityProfileResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type CaptureIdentityProfileData = {
+  body: {
+    sessionId: string;
+    expectedRevision?: number;
+  };
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/identity-profiles/{name}/capture";
+};
+
+export type CaptureIdentityProfileResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type MigrateIdentityProfileData = {
+  body: {
+    expectedRevision: number;
+    compatibilityMode?: "native" | "compatible" | "legacy";
+  };
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/identity-profiles/{name}/migrate";
+};
+
+export type MigrateIdentityProfileResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ResetIdentityContinuityData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/identity-profiles/{name}/continuity/reset";
+};
+
+export type ResetIdentityContinuityResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PreviewIdentityContinuityData = {
+  body?: {
+    identityProfile?: string;
+    browserProfile?: string;
+    cookieSets?: Array<string>;
+    egress?: string;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/identity/continuity/preview";
+};
+
+export type PreviewIdentityContinuityResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetSessionContinuityData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/continuity";
+};
+
+export type GetSessionContinuityResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ConfirmSessionContinuityData = {
+  body: {
+    token: string;
+  };
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/continuity/confirm";
+};
+
+export type ConfirmSessionContinuityResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListSiteProfilesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/site-profiles";
+};
+
+export type ListSiteProfilesResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DeleteSiteProfileData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/site-profiles/{name}";
+};
+
+export type DeleteSiteProfileResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetSiteProfileData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/site-profiles/{name}";
+};
+
+export type GetSiteProfileResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type SaveSiteProfileData = {
+  body: {
+    expectedRevision?: number;
+    origin: string;
+    identityProfile?: string;
+    settings?: {
+      compatibilityMode?: "native" | "compatible" | "legacy";
+      userAgent?: string;
+      timezone?: string;
+      locale?: string;
+      dimensions?: {
+        width: number;
+        height: number;
+      };
+      headless?: boolean;
+      mobileProfile?: string;
+      egress?: string;
+    };
+    permissions: Array<
+      | "geolocation"
+      | "notifications"
+      | "camera"
+      | "microphone"
+      | "clipboard-read"
+      | "clipboard-write"
+    >;
+    extensions: Array<string>;
+    interaction: {
+      frictionDetection: boolean;
+      actionDelayMs: number;
+    };
+  };
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/site-profiles/{name}";
+};
+
+export type SaveSiteProfileResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type RecordSiteSuccessData = {
+  body: {
+    sessionId: string;
+  };
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: "/v1/site-profiles/{name}/success";
+};
+
+export type RecordSiteSuccessResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListMobileProfilesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/mobile-profiles";
+};
+
+export type ListMobileProfilesResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetSessionFrictionData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/friction";
+};
+
+export type GetSessionFrictionResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ScanSessionFrictionData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/friction/scan";
+};
+
+export type ScanSessionFrictionResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListCompatibilityRunsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/compatibility/runs";
+};
+
+export type ListCompatibilityRunsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type RunCompatibilityFixturesData = {
+  body: {
+    sessionId: string;
+    baselineId?: string;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/compatibility/runs";
+};
+
+export type RunCompatibilityFixturesResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetCompatibilityRunData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/compatibility/runs/{id}";
+};
+
+export type GetCompatibilityRunResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type RunCompatibilityMatrixData = {
+  body: {
+    variants: Array<{
+      compatibilityMode: "native" | "compatible" | "legacy";
+      mobileProfile?: string;
+      headless?: boolean;
+      baselineId?: string;
+    }>;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/compatibility/matrix";
+};
+
+export type RunCompatibilityMatrixResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1FleetWorkersData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/fleet/workers";
+};
+
+export type GetV1FleetWorkersResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1FleetPairingsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/fleet/pairings";
+};
+
+export type PostV1FleetPairingsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1FleetWorkersByIdByActionData = {
+  body?: never;
+  path: {
+    id: string;
+    action: string;
+  };
+  query?: never;
+  url: "/v1/fleet/workers/{id}/{action}";
+};
+
+export type PostV1FleetWorkersByIdByActionResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1FleetWorkerRegisterData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/fleet/worker/register";
+};
+
+export type PostV1FleetWorkerRegisterResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1FleetWorkerByIdPollData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/fleet/worker/{id}/poll";
+};
+
+export type PostV1FleetWorkerByIdPollResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1FleetWorkerByIdCommandsByCommandIdResultData = {
+  body?: never;
+  path: {
+    id: string;
+    commandId: string;
+  };
+  query?: never;
+  url: "/v1/fleet/worker/{id}/commands/{commandId}/result";
+};
+
+export type PostV1FleetWorkerByIdCommandsByCommandIdResultResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1FleetSessionsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/fleet/sessions";
+};
+
+export type GetV1FleetSessionsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1FleetSessionsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/fleet/sessions";
+};
+
+export type PostV1FleetSessionsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1FleetSessionsByIdData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/fleet/sessions/{id}";
+};
+
+export type GetV1FleetSessionsByIdResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1FleetSessionsByIdCommandsData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/fleet/sessions/{id}/commands";
+};
+
+export type PostV1FleetSessionsByIdCommandsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1FleetSessionsByIdCommandsByCommandIdData = {
+  body?: never;
+  path: {
+    id: string;
+    commandId: string;
+  };
+  query?: never;
+  url: "/v1/fleet/sessions/{id}/commands/{commandId}";
+};
+
+export type GetV1FleetSessionsByIdCommandsByCommandIdResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1FleetSessionsByIdCommandsByCommandIdReconcileData = {
+  body?: never;
+  path: {
+    id: string;
+    commandId: string;
+  };
+  query?: never;
+  url: "/v1/fleet/sessions/{id}/commands/{commandId}/reconcile";
+};
+
+export type PostV1FleetSessionsByIdCommandsByCommandIdReconcileResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1FleetCheckpointsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/fleet/checkpoints";
+};
+
+export type GetV1FleetCheckpointsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1SessionsByIdEgressDiagnosticsData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/egress-diagnostics";
+};
+
+export type GetV1SessionsByIdEgressDiagnosticsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1SessionsByIdEgressDiagnosticsData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/egress-diagnostics";
+};
+
+export type PostV1SessionsByIdEgressDiagnosticsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
 
 export type ExtractStructuredDataData = {
   body?: ExtractRequest;
@@ -3470,6 +7625,1046 @@ export type DeleteExtensionResponses = {
 
 export type DeleteExtensionResponse = DeleteExtensionResponses[keyof DeleteExtensionResponses];
 
+export type CapturePageSnapshotData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/page-snapshots";
+};
+
+export type CapturePageSnapshotResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListPageSnapshotsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/page-snapshots";
+};
+
+export type ListPageSnapshotsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DeletePageSnapshotData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/page-snapshots/{id}";
+};
+
+export type DeletePageSnapshotResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetPageSnapshotData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/page-snapshots/{id}";
+};
+
+export type GetPageSnapshotResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetPageSnapshotImageData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/page-snapshots/{id}/image";
+};
+
+export type GetPageSnapshotImageResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ComparePageSnapshotsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/page-diffs";
+};
+
+export type ComparePageSnapshotsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListVaultReferencesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/vault/references";
+};
+
+export type ListVaultReferencesResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type FillVaultReferenceData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/vault/fill";
+};
+
+export type FillVaultReferenceResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ProcessSessionArtifactData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/artifacts/process";
+};
+
+export type ProcessSessionArtifactResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetProcessedArtifactData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/artifacts/{id}";
+};
+
+export type GetProcessedArtifactResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListProcessedArtifactsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/artifacts";
+};
+
+export type ListProcessedArtifactsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListWorkspaceExportScopesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/workspace/scopes";
+};
+
+export type ListWorkspaceExportScopesResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ExportWorkspaceData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/workspace/export";
+};
+
+export type ExportWorkspaceResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type StageWorkspaceRecoveryData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/workspace/restore";
+};
+
+export type StageWorkspaceRecoveryResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type SearchSessionDataData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/search";
+};
+
+export type SearchSessionDataResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type SearchData = {
+  body?: SearchRequest;
+  path?: never;
+  query?: never;
+  url: "/v1/search";
+};
+
+export type SearchResponses = {
+  /**
+   * Default Response
+   */
+  200: SearchResponse;
+};
+
+export type SearchResponse2 = SearchResponses[keyof SearchResponses];
+
+export type ListProceduresData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/procedures";
+};
+
+export type ListProceduresResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type CreateProcedureData = {
+  body: {
+    id?: string;
+    name: string;
+    description?: string;
+    inputSchema?: {
+      [key: string]: unknown;
+    };
+    steps: Array<
+      | {
+          id: string;
+          kind: "commands";
+          input: {
+            [key: string]: unknown;
+          };
+          review?: {
+            summary:
+              | string
+              | {
+                  $input: string;
+                };
+            destination:
+              | string
+              | {
+                  $input: string;
+                };
+            fields?: {
+              [key: string]: unknown;
+            };
+            attachments?: Array<{
+              name: string;
+              artifactId: string;
+              sha256: string;
+            }>;
+          };
+          reviewTimeoutMs?: number;
+          retry?: {
+            maxAttempts: number;
+            delayMs: number;
+          };
+        }
+      | {
+          id: string;
+          kind: "assert";
+          assertion: {
+            id: string;
+            label: string;
+            command: {
+              [key: string]: unknown;
+            };
+            path?: string;
+            operator: "equals" | "contains" | "exists" | "not_exists";
+            expected?: unknown;
+            evidence?: "value" | "screenshot";
+          };
+        }
+      | {
+          id: string;
+          kind: "vault_fill";
+          reference: string;
+          selector: string;
+          frameUrl?: string;
+        }
+    >;
+    recovery?: Array<{
+      reason: string;
+      instructions: string;
+    }>;
+    expectedVersion?: number;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/procedures";
+};
+
+export type CreateProcedureResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ProcedureFromActionsData = {
+  body: {
+    name: string;
+    actions: Array<{
+      id: string;
+      input: unknown;
+    }>;
+    inputSchema?: {
+      [key: string]: unknown;
+    };
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/procedures/from-actions";
+};
+
+export type ProcedureFromActionsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DeleteProcedureData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/procedures/{id}";
+};
+
+export type DeleteProcedureResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetProcedureData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/procedures/{id}";
+};
+
+export type GetProcedureResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type UpdateProcedureData = {
+  body: {
+    id?: string;
+    name: string;
+    description?: string;
+    inputSchema?: {
+      [key: string]: unknown;
+    };
+    steps: Array<
+      | {
+          id: string;
+          kind: "commands";
+          input: {
+            [key: string]: unknown;
+          };
+          review?: {
+            summary:
+              | string
+              | {
+                  $input: string;
+                };
+            destination:
+              | string
+              | {
+                  $input: string;
+                };
+            fields?: {
+              [key: string]: unknown;
+            };
+            attachments?: Array<{
+              name: string;
+              artifactId: string;
+              sha256: string;
+            }>;
+          };
+          reviewTimeoutMs?: number;
+          retry?: {
+            maxAttempts: number;
+            delayMs: number;
+          };
+        }
+      | {
+          id: string;
+          kind: "assert";
+          assertion: {
+            id: string;
+            label: string;
+            command: {
+              [key: string]: unknown;
+            };
+            path?: string;
+            operator: "equals" | "contains" | "exists" | "not_exists";
+            expected?: unknown;
+            evidence?: "value" | "screenshot";
+          };
+        }
+      | {
+          id: string;
+          kind: "vault_fill";
+          reference: string;
+          selector: string;
+          frameUrl?: string;
+        }
+    >;
+    recovery?: Array<{
+      reason: string;
+      instructions: string;
+    }>;
+    expectedVersion?: number;
+  };
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/procedures/{id}";
+};
+
+export type UpdateProcedureResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListProcedureVersionsData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/procedures/{id}/versions";
+};
+
+export type ListProcedureVersionsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type RunProcedureData = {
+  body: {
+    version?: number;
+    inputs?: {
+      [key: string]: unknown;
+    };
+    sessionId?: string;
+    sessionOptions?: {
+      [key: string]: unknown;
+    };
+    idempotencyKey: string;
+  };
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/procedures/{id}/run";
+};
+
+export type RunProcedureResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListSubmissionReviewsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/reviews";
+};
+
+export type ListSubmissionReviewsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetSubmissionReviewData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/reviews/{id}";
+};
+
+export type GetSubmissionReviewResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DecideSubmissionReviewData = {
+  body: {
+    decision: "approve" | "reject";
+    contentHash: string;
+  };
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/reviews/{id}/decision";
+};
+
+export type DecideSubmissionReviewResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListCompletionReceiptsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/receipts";
+};
+
+export type ListCompletionReceiptsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetCompletionReceiptData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/receipts/{id}";
+};
+
+export type GetCompletionReceiptResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetWorkflowEvidenceData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/workflow-evidence/{id}";
+};
+
+export type GetWorkflowEvidenceResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListProcedureSchedulesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/procedure-schedules";
+};
+
+export type ListProcedureSchedulesResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type CreateProcedureScheduleData = {
+  body: {
+    id?: string;
+    name: string;
+    procedureId: string;
+    version: number;
+    inputs?: {
+      [key: string]: unknown;
+    };
+    sessionId?: string;
+    sessionOptions?: {
+      [key: string]: unknown;
+    };
+    enabled?: boolean;
+    trigger:
+      | {
+          kind: "interval";
+          everySeconds: number;
+        }
+      | {
+          kind: "daily";
+          at: string;
+          timezone: string;
+        }
+      | {
+          kind: "webhook";
+        }
+      | {
+          kind: "watcher";
+          watcherId: string;
+          onlyMatched?: boolean;
+        };
+    missedRun?: "skip" | "run_once";
+    maxLatenessSeconds?: number;
+    maxConcurrent?: number;
+    deadlineSeconds?: number;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/procedure-schedules";
+};
+
+export type CreateProcedureScheduleResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DeleteProcedureScheduleData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/procedure-schedules/{id}";
+};
+
+export type DeleteProcedureScheduleResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type UpdateProcedureScheduleData = {
+  body: {
+    id?: string;
+    name: string;
+    procedureId: string;
+    version: number;
+    inputs?: {
+      [key: string]: unknown;
+    };
+    sessionId?: string;
+    sessionOptions?: {
+      [key: string]: unknown;
+    };
+    enabled?: boolean;
+    trigger:
+      | {
+          kind: "interval";
+          everySeconds: number;
+        }
+      | {
+          kind: "daily";
+          at: string;
+          timezone: string;
+        }
+      | {
+          kind: "webhook";
+        }
+      | {
+          kind: "watcher";
+          watcherId: string;
+          onlyMatched?: boolean;
+        };
+    missedRun?: "skip" | "run_once";
+    maxLatenessSeconds?: number;
+    maxConcurrent?: number;
+    deadlineSeconds?: number;
+  };
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/procedure-schedules/{id}";
+};
+
+export type UpdateProcedureScheduleResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ProcedureScheduleHistoryData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/procedure-schedules/{id}/history";
+};
+
+export type ProcedureScheduleHistoryResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type TriggerProcedureWebhookData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/procedure-triggers/{id}";
+};
+
+export type TriggerProcedureWebhookResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListRegressionReplaysData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/regression-replays";
+};
+
+export type ListRegressionReplaysResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type StartRegressionReplayData = {
+  body: {
+    baselineRunId: string;
+    inputs?: {
+      [key: string]: unknown;
+    };
+    candidate: {
+      label: string;
+      sessionOptions?: {
+        [key: string]: unknown;
+      };
+    };
+    allowedOrigins: Array<string>;
+    allowMutations?: boolean;
+    idempotencyKey: string;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/regression-replays";
+};
+
+export type StartRegressionReplayResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetRegressionReplayData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/regression-replays/{id}";
+};
+
+export type GetRegressionReplayResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1InboxData = {
+  body?: never;
+  path?: never;
+  query?: {
+    includeDismissed?: boolean;
+    status?: string;
+    limit?: number;
+  };
+  url: "/v1/inbox";
+};
+
+export type GetV1InboxResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PatchV1InboxByIdData = {
+  body: {
+    expectedRevision: string;
+    read?: boolean;
+    dismissed?: boolean;
+  };
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/inbox/{id}";
+};
+
+export type PatchV1InboxByIdResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1InboxByIdActionsData = {
+  body: {
+    expectedRevision: string;
+    action: "answer" | "retry" | "approve" | "reject";
+    note?: string;
+    resolution?: {
+      stepId: string;
+      outcome: "applied" | "not_applied";
+      evidence: string;
+    };
+    contentHash?: string;
+  };
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/inbox/{id}/actions";
+};
+
+export type PostV1InboxByIdActionsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1SessionsByIdExplanationData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{id}/explanation";
+};
+
+export type GetV1SessionsByIdExplanationResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1RecoveryKnowledgeData = {
+  body?: never;
+  path?: never;
+  query?: {
+    origin?: string;
+    procedureId?: string;
+    suggestions?: boolean;
+  };
+  url: "/v1/recovery-knowledge";
+};
+
+export type GetV1RecoveryKnowledgeResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1RecoveryKnowledgeData = {
+  body: {
+    sessionId: string;
+    handoffId: string;
+    title: string;
+    note: string;
+    selectedSteps: Array<number>;
+    origin: string;
+    procedureId?: string;
+    visibility?: "private" | "workspace";
+    expiresInDays?: number;
+  };
+  path?: never;
+  query?: never;
+  url: "/v1/recovery-knowledge";
+};
+
+export type PostV1RecoveryKnowledgeResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DeleteV1RecoveryKnowledgeByIdData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query: {
+    expectedVersion: number;
+  };
+  url: "/v1/recovery-knowledge/{id}";
+};
+
+export type DeleteV1RecoveryKnowledgeByIdResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetV1RecoveryKnowledgeByIdData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: {
+    version?: number;
+  };
+  url: "/v1/recovery-knowledge/{id}";
+};
+
+export type GetV1RecoveryKnowledgeByIdResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PutV1RecoveryKnowledgeByIdData = {
+  body: {
+    expectedVersion: number;
+    title?: string;
+    note?: string;
+    disabled?: boolean;
+    expiresInDays?: number;
+    steps?: Array<{
+      seq: number;
+      tool: string;
+      args?: unknown;
+      title?: string;
+      replayable: boolean;
+    }>;
+  };
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/recovery-knowledge/{id}";
+};
+
+export type PutV1RecoveryKnowledgeByIdResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PostV1RecoveryKnowledgeByIdAcceptData = {
+  body: {
+    expectedVersion: number;
+    sessionId: string;
+    accepted: true;
+    idempotencyKey: string;
+  };
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/recovery-knowledge/{id}/accept";
+};
+
+export type PostV1RecoveryKnowledgeByIdAcceptResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
 export type ScrapeData = {
   body?: ScrapeRequest;
   path?: never;
@@ -3517,22 +8712,6 @@ export type PdfResponses = {
 };
 
 export type PdfResponse2 = PdfResponses[keyof PdfResponses];
-
-export type SearchData = {
-  body?: SearchRequest;
-  path?: never;
-  query?: never;
-  url: "/v1/search";
-};
-
-export type SearchResponses = {
-  /**
-   * Default Response
-   */
-  200: SearchResponse;
-};
-
-export type SearchResponse2 = SearchResponses[keyof SearchResponses];
 
 export type TouchSessionData = {
   body?: never;
@@ -4443,6 +9622,157 @@ export type GetVpnProvidersResponses = {
    */
   200: unknown;
 };
+
+export type GetCommandsSchemaData = {
+  body?: never;
+  path: {
+    sessionId: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{sessionId}/commands/schema";
+};
+
+export type GetCommandsSchemaResponses = {
+  /**
+   * Default Response
+   */
+  200: CommandsSchemaResponse;
+};
+
+export type GetCommandsSchemaResponse =
+  GetCommandsSchemaResponses[keyof GetCommandsSchemaResponses];
+
+export type RunCommandsData = {
+  body?: CommandRequest;
+  headers?: {
+    /**
+     * A random value. A retry with the same key returns the stored result.
+     */
+    "idempotency-key"?: string;
+  };
+  path: {
+    sessionId: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{sessionId}/commands";
+};
+
+export type RunCommandsErrors = {
+  /**
+   * Default Response
+   */
+  400: CommandRequestError;
+  /**
+   * Default Response
+   */
+  410: CommandRequestError;
+  /**
+   * Default Response
+   */
+  422: CommandRequestError;
+  /**
+   * Default Response
+   */
+  429: CommandRequestError;
+  /**
+   * Default Response
+   */
+  500: CommandRequestError;
+};
+
+export type RunCommandsError = RunCommandsErrors[keyof RunCommandsErrors];
+
+export type RunCommandsResponses = {
+  /**
+   * Default Response
+   */
+  200: CommandResponse;
+};
+
+export type RunCommandsResponse = RunCommandsResponses[keyof RunCommandsResponses];
+
+export type GetCommandExecutionData = {
+  body?: never;
+  path: {
+    sessionId: string;
+    executionId: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{sessionId}/commands/executions/{executionId}";
+};
+
+export type GetCommandExecutionErrors = {
+  /**
+   * Default Response
+   */
+  400: CommandRequestError;
+  /**
+   * Default Response
+   */
+  410: CommandRequestError;
+  /**
+   * Default Response
+   */
+  422: CommandRequestError;
+  /**
+   * Default Response
+   */
+  500: CommandRequestError;
+};
+
+export type GetCommandExecutionError = GetCommandExecutionErrors[keyof GetCommandExecutionErrors];
+
+export type GetCommandExecutionResponses = {
+  /**
+   * Default Response
+   */
+  200: CommandResponse;
+};
+
+export type GetCommandExecutionResponse =
+  GetCommandExecutionResponses[keyof GetCommandExecutionResponses];
+
+export type CancelCommandExecutionData = {
+  body?: never;
+  path: {
+    sessionId: string;
+    executionId: string;
+  };
+  query?: never;
+  url: "/v1/sessions/{sessionId}/commands/executions/{executionId}/cancel";
+};
+
+export type CancelCommandExecutionErrors = {
+  /**
+   * Default Response
+   */
+  400: CommandRequestError;
+  /**
+   * Default Response
+   */
+  410: CommandRequestError;
+  /**
+   * Default Response
+   */
+  422: CommandRequestError;
+  /**
+   * Default Response
+   */
+  500: CommandRequestError;
+};
+
+export type CancelCommandExecutionError =
+  CancelCommandExecutionErrors[keyof CancelCommandExecutionErrors];
+
+export type CancelCommandExecutionResponses = {
+  /**
+   * Default Response
+   */
+  200: CommandResponse;
+};
+
+export type CancelCommandExecutionResponse =
+  CancelCommandExecutionResponses[keyof CancelCommandExecutionResponses];
 
 export type GetV1LogsQueryData = {
   body?: never;

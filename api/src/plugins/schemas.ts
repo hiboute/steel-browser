@@ -13,7 +13,6 @@ import { buildJsonSchemas } from "../utils/schema.js";
 import filesSchemas from "../modules/files/files.schema.js";
 import commandsSchemas from "../modules/commands/commands.schema.js";
 import { getBaseUrl } from "../utils/url.js";
-import { env } from "../env.js";
 
 const SCHEMAS = {
   ...actionSchemas,
@@ -29,9 +28,6 @@ export const { schemas, $ref } = buildJsonSchemas(SCHEMAS);
 
 const schemaPlugin: FastifyPluginAsync = async (fastify) => {
   for (const schema of schemas) {
-    if (!env.ENABLE_COMMANDS_API && schema.$id in commandsSchemas) {
-      continue;
-    }
     fastify.addSchema(schema);
   }
 

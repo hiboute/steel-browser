@@ -2,7 +2,11 @@
 
 The owner selected the complete roadmap below for PR #7, including the companion
 MCP, harness and deployment work. The initial architecture draft targeted fork
-main `ef515aa`; the PR incorporates main `0469ef1`. The specification below is
+main `ef515aa`; the release incorporates main `68822fe`, including the NordVPN
+TLS fix. PR #7 merged as `a050700d36b492146f25f01e5ce6e74d44a6da44`; PR #12 fixes
+one-time sessionStorage restoration and PR #13 handles HTTP/2 response phrases
+in guarded browser jobs. The runtime release is
+`c3159404943f612425039513b4dde7c6b43f8443`. The specification below is
 retained as the accepted scope. The operator-facing contract and configuration
 are in [SESSION-PLATFORM.md](SESSION-PLATFORM.md) and
 [MULTI_SESSION.md](../MULTI_SESSION.md).
@@ -30,7 +34,7 @@ production rollout. Final deployment evidence belongs in the separate checklist.
       recordings, automation, egress, extraction, notifications and audit.
 - [x] Three UI design directions prepared; Workshop is the selected default.
 - [x] Harness session selection, scoped CDP targets and closed-panel polling fixes.
-- [x] Companion MCP implementation and generated 28-tool catalog; production verification follows the release.
+- [x] Companion MCP release and generated 28-tool catalog, verified in production.
 - [x] Harness visual controls and live harness deployment (PRs #35 and #36).
 - [x] Final cross-package regression run and OpenAPI/generated-client refresh.
 
@@ -39,31 +43,84 @@ store, login, agent-feature and extras tests; API/UI production builds; real
 Chromium login/ACL/write-back and handoff/recording/restart checks; and an operator
 UI browser flow covering creation, handoff, login capture, recording, files,
 parking/resume, watcher/warm work and extraction against a deterministic local LLM.
-The final feature/core API run passes 464 tests across 63 files, with Chromium and
-heavy scrape checks enabled. Another nine CDP interception tests pass in isolated
-Chromium. The unchanged command engine passes 234 of 238 tests using temporary
-localhost fixture aliases in an isolated container: three existing accessible-name
-whitespace mismatches and one pseudo-element description mismatch remain. Command
-implementation and tests match base main `0469ef1`. MCP passes 131 tests; the UI
-browser smoke passes 13 checks. API and UI production builds pass.
+GitHub CI passes 715 API tests, with two skipped, across 67 files, including the
+unchanged command engine. All three Docker image builds pass: combined, API and
+UI. The local feature/core run also passes 464 tests with heavy scrape checks
+enabled, and the proxy/egress/session integration run passes 42 tests after the
+NordVPN TLS merge. MCP passes 134 tests; the UI browser smoke passes 13 checks.
 
-The isolated browser runs preserve managed host policies. The fixture adaptation
-is not a repository change. Production release SHAs and checks are recorded below
-once rollout finishes.
+Local isolated-fixture runs exposed environment-specific differences that do not
+reproduce in GitHub's canonical suite. No managed host policy or command-engine
+source/test changes were needed. Production evidence follows below.
 
 ## Deployment verification
 
-- [ ] Push the final reviewed Steel commit and update PR #7's complete scope.
-- [ ] Update both pinned Steel API/UI commits in homelab and verify compose settings.
-- [ ] Provision/verify data encryption, notification webhook, home proxy credentials
+- [x] Push the final reviewed Steel commit and update PR #7's complete scope.
+- [x] Update both pinned Steel API/UI commits in homelab and verify compose settings.
+- [x] Provision/verify data encryption, notification webhook, home proxy credentials
       and the Steel LiteLLM key without replacing existing credential/profile volumes.
-- [ ] Apply the home egress proxy configuration and verify its actual outbound IP.
-- [ ] Verify the real notification destination and LLM provider/model.
-- [ ] Deploy Steel API, UI and MCP; verify their running versions and health.
-- [ ] Deploy the harness changes and verify the agent follows its own live session.
-- [ ] Verify production queue/expiry/park/resume/restart, login maintenance,
+- [x] Apply the home egress proxy configuration and verify its actual outbound IP.
+- [x] Verify the real notification destination and LLM provider/model.
+- [x] Deploy Steel API, UI and MCP; verify their running versions and health.
+- [x] Deploy the harness changes and verify the agent follows its own live session.
+- [x] Verify production queue/expiry/park/resume/restart, login maintenance,
       handoff, recording, downloads, watchers, warm browsers and extension loading.
-- [ ] Confirm upstream-sync and homelab pin-bump workflows are installed and runnable.
+- [x] Confirm upstream-sync and homelab pin-bump workflows are installed and runnable.
+
+### Release evidence (2026-11-10)
+
+| Component | Released source | Evidence |
+| --- | --- | --- |
+| Steel API and Workshop UI | `c3159404943f612425039513b4dde7c6b43f8443` | [Roadmap PR #7](https://github.com/hiboute/steel-browser/pull/7), [resume follow-up #12](https://github.com/hiboute/steel-browser/pull/12), [HTTP/2 follow-up #13](https://github.com/hiboute/steel-browser/pull/13), [API CI](https://github.com/hiboute/steel-browser/actions/runs/42785654865), [Docker builds](https://github.com/hiboute/steel-browser/actions/runs/42785654932) |
+| MCP and infrastructure | `1c8342f2d55f57d4cd9a1bc92710061c6bae1d30` | [Roadmap deployment #624](https://github.com/hiboute/homelab/pull/624), [paired pin update #625](https://github.com/hiboute/homelab/pull/625); both Steel pins match the runtime release |
+| Harness | `455943f7bbd1c9b6c5522777c5ec2b9119c1bbb4` | [Session controls #35](https://github.com/hiboute/vertex-harness/pull/35), [screenshots/downloads #36](https://github.com/hiboute/vertex-harness/pull/36) |
+
+The API health check and 28-tool MCP catalog pass. The Workshop UI serves the
+same JS/CSS hashes as the tested build. The live harness check verifies caller
+session routing, scoped CDP and frames, screenshot/download streaming, handoff,
+park/resume and cookie/localStorage/sessionStorage preservation. Temporary test
+sessions were released. Both direct and home egress report healthy, distinct
+public addresses through the deployed API.
+
+Automatic handoff completion passed with a verified selector and URL condition.
+Real `spark` extraction returned the page's grounded title. A Steel notification
+was marked delivered and triggered the Home Assistant automation; the temporary
+notification was dismissed. Production recording produced six frames and a
+valid JPEG, and the reaper parked an owned session with reason `idle`.
+
+Synthetic login checks verified ACL denial, cookie loading, release write-back,
+previous-version restore, fingerprint pinning, expiry and health status, encrypted
+storage and audit events. All temporary login sessions, sets and profiles were
+removed and verified absent.
+
+Production capacity checks filled four owned slots, observed `429 pool_full`,
+and admitted a queued request after an owned slot was released. Warm-session
+reservation and stable-ID restart passed. Extension upload, real content-script
+execution and in-use deletion protection passed; temporary definitions were removed.
+
+The final rollout parked an owned live browser with reason `shutdown`. The same
+session ID resumed with its tab, cookie, localStorage and sessionStorage intact;
+a newer sessionStorage value also survived reload. A recording created before
+the rollout still returned a valid JPEG afterward. The recovery browser was
+released and the temporary recording deleted. Dokploy deployment
+`bdF0fWrZ5ETRgkbai9CiV` completed successfully, and the deployment PR and main-branch
+MCP checks passed.
+
+On the final release, a watcher loaded a public HTTPS page twice and verified its
+baseline, unchanged comparison, two history entries and persisted value. A new-URL
+extraction loaded that page through the guard and returned schema-valid data,
+markdown and usage from the real `spark` model. Temporary watcher configuration
+and browser sessions were removed. Final pool verification reported zero live,
+parked, queued and background sessions.
+
+Both scheduled workflows are enabled and their first manual runs succeeded with
+no update required: [upstream sync](https://github.com/hiboute/steel-browser/actions/runs/42780087081)
+and [paired pin bump](https://github.com/hiboute/homelab/actions/runs/42782658977).
+The pin-bump workflow subsequently created PR #625 with exactly the two expected
+pin changes, exercising its real PR-creation path.
+The owner explicitly approved GitHub's combined Actions PR creation/review-approval
+setting in both repositories. Default token permissions remain read-only, and
+these workflows only create/update review PRs; they never approve or merge them.
 
 No API token on steel-api was selected. Existing authentication/network controls
 remain the access boundary; `X-Steel-Client` is caller attribution, not authentication.

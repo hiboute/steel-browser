@@ -18,6 +18,45 @@ export function JsonDetails({ value, label = "Details" }: { value: unknown; labe
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="empty-state">{children}</p>;
 }
+export function ReviewProposal({
+  proposal,
+}: {
+  proposal: {
+    destination?: string;
+    fields?: Record<string, unknown>;
+    attachments?: Array<{ name: string; artifactId?: string; sha256?: string }>;
+  };
+}) {
+  return (
+    <div className="review-proposal">
+      <p>
+        Destination: <strong>{proposal.destination}</strong>
+      </p>
+      <dl className="proposal-fields">
+        {Object.entries(proposal.fields ?? {}).map(([key, value]) => (
+          <div key={key}>
+            <dt>{key}</dt>
+            <dd>{typeof value === "string" ? value : JSON.stringify(value, null, 2)}</dd>
+          </div>
+        ))}
+      </dl>
+      {!!proposal.attachments?.length && (
+        <>
+          <p>Attachments</p>
+          <ul className="attachment-review">
+            {proposal.attachments.map((file, index) => (
+              <li key={file.artifactId ?? index}>
+                <strong>{file.name}</strong>
+                {file.sha256 && <code title={file.sha256}>SHA256 {file.sha256}</code>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <JsonDetails value={proposal} label="Exact proposed content" />
+    </div>
+  );
+}
 export function Field({
   label,
   name,

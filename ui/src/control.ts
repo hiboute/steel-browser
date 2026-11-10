@@ -12,6 +12,9 @@ export interface LocalControl {
   token: string;
 }
 const controls = new Map<string, LocalControl>();
+export function heldControls() {
+  return [...controls.entries()];
+}
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((listener) => listener());
 export function setLocalControl(sessionId: string, value: LocalControl | null) {

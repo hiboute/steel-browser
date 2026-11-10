@@ -13,6 +13,7 @@ import {
   string,
   useAction,
   when,
+  ReviewProposal,
 } from "./common";
 
 type Row = {
@@ -38,7 +39,7 @@ const initialSteps = [
     assertion: {
       id: "title",
       label: "Page has the expected title",
-      command: { commands: [{ command: "get", what: "title" }] },
+      command: { command: "get", what: "title" },
       path: "results.0.value",
       operator: "contains",
       expected: { $input: "expectedTitle" },
@@ -191,9 +192,11 @@ export function AutomationPage({ session }: { session?: SessionDetails | null })
               </>
             )}
             {tab === "reviews" && (
-              <div className="review-proposal">
-                <p>Destination: {row.proposal?.destination}</p>
-                <JsonDetails value={row.proposal} label="Exact action and attachments" />
+              <div className="review-state">
+                <ReviewProposal proposal={row.proposal} />
+                {row.expiresAt && (
+                  <p className="field-hint">Review deadline: {when(row.expiresAt)}</p>
+                )}
                 <JsonDetails value={row.preparedSnapshot} label="Prepared page state" />
               </div>
             )}

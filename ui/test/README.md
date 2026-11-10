@@ -55,3 +55,38 @@ save a screenshot.
 `EXTRAS_ALLOW_PRIVATE_NETWORKS=true` is only for this isolated local fixture:
 watchers and extraction must reach its loopback address. Leave that setting
 disabled in production.
+
+## Workbench and ownership smoke
+
+`node ui/test/workbench-smoke.mjs` exercises the integrated operator UI against
+the real API. It covers observer/control transitions and live viewer navigation,
+inbox answers and persisted read state, versioned recovery with explicit execution,
+procedure creation, exact proposal review, agent-role rejection, verified receipts,
+identity profiles, retained page evidence and search, diagnostics, checkpoint
+branching, and mobile navigation. It also rejects browser runtime errors and
+cleans up its own sessions and saved resources. Released history remains in the
+isolated store.
+
+Build the integrated API first. Use fresh local data directories and the same
+fixture launch above, with `UI_TEST_FIXTURE_PORT=3349`. Start the API on port 3348
+and its CDP base on 9358 (reserve 9359 for redirects), with the same local-only
+fixture settings. Add two test credentials for the same verified principal:
+
+```sh
+export STEEL_AUTH_KEYS='{"ui-smoke-operator-local-fixture-key":{"id":"ui-smoke@example.test","role":"operator"},"ui-smoke-agent-local-fixture-key":{"id":"ui-smoke@example.test","role":"agent"}}'
+# Pass STEEL_AUTH_KEYS only to the isolated API process.
+STEEL_DEV_API_URL=http://127.0.0.1:3348 npm run dev -w ui -- --port 5178
+
+UI_TEST_OPERATOR_KEY=ui-smoke-operator-local-fixture-key \
+UI_TEST_AGENT_KEY=ui-smoke-agent-local-fixture-key \
+node ui/test/workbench-smoke.mjs
+```
+
+The workbench smoke defaults to API 3348, UI 5178, fixture 3349, and artifacts in
+`steel-workbench-smoke` under the OS temporary directory. It accepts the same
+`API_TEST_BASE_URL`, `UI_TEST_BASE_URL`, `UI_TEST_FIXTURE_URL`,
+`UI_TEST_ARTIFACT_DIR`, and `CHROME_EXECUTABLE_PATH` overrides as the lifecycle
+smoke. Test keys above are disposable local fixtures, never deployment credentials.
+`live-smoke.mjs` also accepts `UI_TEST_OPERATOR_KEY` when its API uses authentication.
+Run the two suites sequentially so checkpoint branches and background watchers
+have predictable capacity.

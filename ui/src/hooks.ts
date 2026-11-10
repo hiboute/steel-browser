@@ -150,29 +150,27 @@ export function usePageId(session: SessionDetails) {
 
 /** Poll only mounted, visible screens; abort work on navigation and prevent overlapping requests. */
 export function useResource<T>(path: string | null, intervalMs = 5000) {
-  const [data, setData] = useState<T>();
-  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ path: string; value: T }>();
+  const [failure, setFailure] = useState<{ path: string; message: string }>();
   const [version, setVersion] = useState(0);
   const refresh = useCallback(() => setVersion((n) => n + 1), []);
   useEffect(() => {
     if (!path) {
-      setData(undefined);
       return;
     }
     const controller = new AbortController();
     let timer: number | undefined;
-    setData(undefined);
     const poll = async () => {
       if (document.visibilityState === "visible") {
         try {
           const value = await request<T>(path, { signal: controller.signal });
           if (!controller.signal.aborted) {
-            setData(value);
-            setError(null);
+            setResult({ path, value });
+            setFailure(undefined);
           }
         } catch (cause) {
           if (!controller.signal.aborted)
-            setError(cause instanceof Error ? cause.message : String(cause));
+            setFailure({ path, message: cause instanceof Error ? cause.message : String(cause) });
         }
       }
       if (!controller.signal.aborted && intervalMs > 0) timer = window.setTimeout(poll, intervalMs);
@@ -183,7 +181,11 @@ export function useResource<T>(path: string | null, intervalMs = 5000) {
       window.clearTimeout(timer);
     };
   }, [path, intervalMs, version]);
-  return { data, error, refresh };
+  return {
+    data: result?.path === path ? result.value : undefined,
+    error: failure?.path === path ? failure.message : null,
+    refresh,
+  };
 }
 
 export function useStoredToggle(key: string, initial: boolean) {

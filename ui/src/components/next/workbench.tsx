@@ -7,7 +7,13 @@ import {
   type TimelineEntry,
 } from "../../api";
 import { useResource } from "../../hooks";
-import { setLocalControl, useLocalControl, type ControlLease } from "../../control";
+import {
+  heldControls,
+  localControl,
+  setLocalControl,
+  useLocalControl,
+  type ControlLease,
+} from "../../control";
 import { Page, ErrorMessage } from "../workspace-pages";
 import {
   ActionForm,
@@ -19,6 +25,7 @@ import {
   string,
   useAction,
   when,
+  ReviewProposal,
 } from "./common";
 
 interface Explanation {
@@ -56,8 +63,8 @@ interface Card {
     proposal?: {
       summary?: string;
       destination?: string;
-      fields?: unknown;
-      attachments?: unknown[];
+      fields?: Record<string, unknown>;
+      attachments?: Array<{ name: string; artifactId?: string; sha256?: string }>;
     };
     contentHash?: string;
     [key: string]: unknown;
@@ -97,16 +104,6 @@ export function SessionWorkbench({ session }: { session: SessionDetails }) {
     )
       setLocalControl(session.id, null);
   }, [control.data, session.id]);
-  useEffect(() => {
-    if (!local || session.status !== "live") return;
-    const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void mutate<{ lease: ControlLease }>(`${path}/control/renew`, { ttlMs: 60000 })
-        .then((value) => setLocalControl(session.id, { token: local.token, lease: value.lease }))
-        .catch(() => setLocalControl(session.id, null));
-    }, 20000);
-    return () => clearInterval(timer);
-  }, [local?.token, session.id, session.status, path]);
   const take = async () => {
     const value = (await action.run(
       `${path}/control/${control.data?.lease ? "transfer" : "acquire"}`,
@@ -137,7 +134,7 @@ export function SessionWorkbench({ session }: { session: SessionDetails }) {
           </span>
         </div>
         <div className="button-row">
-          {session.status === "live" &&
+          {["live", "parked"].includes(session.status) &&
             (local ? (
               <button
                 className="pill-button"
@@ -198,6 +195,31 @@ export function SessionWorkbench({ session }: { session: SessionDetails }) {
       <SaveResolution session={session} />
     </section>
   );
+}
+
+/** Retain this tab's lease while its operator works in another Workshop view. */
+export function ControlHeartbeat() {
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      for (const [id, current] of heldControls()) {
+        if (!localControl(id)) {
+          setLocalControl(id, null);
+          continue;
+        }
+        void mutate<{ lease: ControlLease }>(`${sessionPath(id)}/control/renew`, { ttlMs: 60000 })
+          .then((value) => {
+            if (localControl(id)?.token === current.token)
+              setLocalControl(id, { token: current.token, lease: value.lease });
+          })
+          .catch(() => {
+            if (localControl(id)?.token === current.token) setLocalControl(id, null);
+          });
+      }
+    }, 20000);
+    return () => clearInterval(timer);
+  }, []);
+  return null;
 }
 
 export function InboxPage() {
@@ -302,14 +324,13 @@ export function InboxPage() {
             </div>
             {item.description && <p>{item.description}</p>}
             {item.details?.proposal && (
-              <div className="review-proposal">
+              <div className="review-state">
                 <strong>{item.details.proposal.summary}</strong>
-                <p>Destination: {item.details.proposal.destination}</p>
-                <JsonDetails value={item.details.proposal.fields} label="Proposed fields" />
-                <JsonDetails value={item.details.preparedSnapshot} label="Prepared page state" />
-                {!!item.details.proposal.attachments?.length && (
-                  <JsonDetails value={item.details.proposal.attachments} label="Attachments" />
+                <ReviewProposal proposal={item.details.proposal} />
+                {typeof item.details.expiresAt === "string" && (
+                  <p className="field-hint">Review deadline: {when(item.details.expiresAt)}</p>
                 )}
+                <JsonDetails value={item.details.preparedSnapshot} label="Prepared page state" />
               </div>
             )}
             {item.kind === "receipt" && (
@@ -507,8 +528,8 @@ function SaveResolution({ session }: { session: SessionDetails }) {
           </div>
           <div className="dialog-body">
             <p className="field-hint">
-              Save notes and only the actions you select. Credentials are removed. Suggestions never
-              execute automatically.
+              Save notes and only the actions you select. Known credential fields and tokens are
+              redacted; keep your notes free of secrets. Suggestions never execute automatically.
             </p>
             <Field label="Title" name="title" value={handoff.data.reason} required />
             <Field

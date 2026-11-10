@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
-import { apiUrl, isPrimarySession, type SessionDetails } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { apiUrl, mutate, sessionPath, type SessionDetails } from "../api";
 import { useColorScheme, usePageId } from "../hooks";
 import { Details } from "./details";
 import { Notice } from "./notice";
@@ -106,15 +106,54 @@ function LiveFrame({ url, sessionId }: { url: string; sessionId: string }) {
 
 function DevTools({ session }: { session: SessionDetails }) {
   const pageId = usePageId(session);
-  const query = pageId ? `?pageId=${encodeURIComponent(pageId)}` : "";
+  const control = useLocalControl(session.id),
+    [src, setSrc] = useState<string>(),
+    [error, setError] = useState<string>(),
+    [version, setVersion] = useState(0);
+  useEffect(() => {
+    setSrc(undefined);
+    setError(undefined);
+    if (!control) return;
+    const abort = new AbortController();
+    void mutate<{ ticket: string }>(
+      `${sessionPath(session.id)}/control/ticket`,
+      { channel: "cdp" },
+      "POST",
+      abort.signal,
+    )
+      .then(({ ticket }) => {
+        if (abort.signal.aborted) return;
+        const query = new URLSearchParams({ controlTicket: ticket });
+        if (pageId) query.set("pageId", pageId);
+        setSrc(apiUrl(`${sessionPath(session.id)}/devtools?${query}`));
+      })
+      .catch((error) => {
+        if (!abort.signal.aborted) setError(String(error.message));
+      });
+    return () => abort.abort();
+  }, [session.id, control?.token, pageId, version]);
 
   return (
     <div className="dock">
-      <iframe
-        title="Chrome DevTools"
-        className="dock-frame"
-        src={apiUrl(`/v1/devtools/inspector.html${query}`)}
-      />
+      {!control ? (
+        <Notice title="Developer tools need control">
+          Take control of this browser to inspect or change its page.
+        </Notice>
+      ) : error ? (
+        <Notice title="Developer tools unavailable">{error}</Notice>
+      ) : src ? (
+        <>
+          <button
+            className="pill-button dock-reconnect"
+            onClick={() => setVersion((value) => value + 1)}
+          >
+            Reconnect developer tools
+          </button>
+          <iframe title="Chrome DevTools" className="dock-frame" src={src} />
+        </>
+      ) : (
+        <Notice title="Connecting developer tools" busy />
+      )}
     </div>
   );
 }
@@ -127,7 +166,7 @@ export function Stage({
   devtoolsOpen: boolean;
 }) {
   const running = ["live", "idle"].includes(session.status);
-  const docked = running && devtoolsOpen && Boolean(session.debugUrl) && isPrimarySession(session);
+  const docked = session.status === "live" && devtoolsOpen && Boolean(session.debugUrl);
 
   return (
     <section className="stage" data-devtools={docked ? "open" : "closed"} aria-label="Live view">

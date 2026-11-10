@@ -37,20 +37,30 @@ export function wsUrl(path: string): string {
 }
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let sessionId = path.match(/^\/v1\/sessions\/([^/?]+)/)?.[1];
+  if (!sessionId && typeof init?.body === "string")
+    try {
+      const body = JSON.parse(init.body);
+      if (typeof body?.sessionId === "string") sessionId = body.sessionId;
+    } catch {
+      /* Other request body formats have no implicit browser scope. */
+    }
   const response = await fetch(apiUrl(path), {
     ...init,
     headers: {
       "X-Steel-Client": "ui",
-      ...controlHeaders(path.match(/^\/v1\/sessions\/([^/?]+)/)?.[1]),
+      ...controlHeaders(sessionId),
       ...init?.headers,
     },
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+    const body = (await response.json().catch(() => null)) as {
+      message?: unknown;
+      error?: { message?: unknown };
+    } | null;
+    const message = body?.message ?? body?.error?.message;
     throw new Error(
-      typeof body?.message === "string"
-        ? body.message
-        : `Request to ${path} failed with ${response.status}`,
+      typeof message === "string" ? message : `Request to ${path} failed with ${response.status}`,
     );
   }
   return (await response.json()) as T;
@@ -70,11 +80,6 @@ export function sessionSocketPath(session: SessionDetails | null | undefined, ki
   return session && session.status === "live"
     ? `/v1/sessions/${encodeURIComponent(session.id)}/${kind}`
     : `/v1/sessions/${kind}`;
-}
-
-/** Only the primary browser (root CDP socket) is reachable by the DevTools proxy. */
-export function isPrimarySession(session: SessionDetails) {
-  return !/\/v1\/sessions\/[^/]+\/cdp/.test(session.websocketUrl ?? "");
 }
 
 export function createSession(
@@ -200,10 +205,21 @@ export function mutate<T>(
   signal?: AbortSignal,
   headers?: Record<string, string>,
 ) {
+  const bodySession =
+    body && typeof body === "object" && "sessionId" in body && typeof body.sessionId === "string"
+      ? body.sessionId
+      : undefined;
   return request<T>(path, {
     method,
     ...(body !== undefined
-      ? { headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) }
+      ? {
+          headers: {
+            "Content-Type": "application/json",
+            ...controlHeaders(bodySession),
+            ...headers,
+          },
+          body: JSON.stringify(body),
+        }
       : {}),
     ...(body === undefined ? { headers } : {}),
     signal,

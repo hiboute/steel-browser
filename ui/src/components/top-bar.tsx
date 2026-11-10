@@ -1,4 +1,4 @@
-import { isPrimarySession, type SessionDetails } from "../api";
+import { type SessionDetails } from "../api";
 import { CopyButton } from "./copy-button";
 import { ChevronRightIcon, ConsoleIcon, DevToolsIcon, RailIcon } from "./icons";
 import { NewSessionButton } from "./new-session";
@@ -57,7 +57,7 @@ export function TopBar({
           <ConsoleIcon />
         </button>
       )}
-      {session?.debugUrl && isPrimarySession(session) && (
+      {session?.debugUrl && session.status === "live" && (
         <button
           type="button"
           className="bar-button devtools-toggle"

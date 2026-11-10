@@ -276,7 +276,7 @@ export function PlatformPage({ session }: { session?: SessionDetails | null }) {
       )}
       {result !== undefined && (
         <div className="work-result">
-          {result.id && result.status === "parked" && (
+          {result.id && ["parked", "live"].includes(result.status) && (
             <a href={`?session=${result.id}`}>Open checkpoint branch ↗</a>
           )}
           <JsonDetails value={result} label="Operation result" />

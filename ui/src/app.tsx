@@ -3,8 +3,8 @@ import { Rail, type ApiStatus } from "./components/rail";
 import { SessionConsole } from "./components/session-console";
 import { Stage } from "./components/stage";
 import { TopBar } from "./components/top-bar";
-import type { SessionDetails } from "./api";
-import { useSessions, useShortcutKeys, useStoredToggle, useUrlParam } from "./hooks";
+import { sessionPath, type SessionDetails } from "./api";
+import { useResource, useSessions, useShortcutKeys, useStoredToggle, useUrlParam } from "./hooks";
 import { CookieLibraryPage } from "./components/cookie-library";
 import {
   ExtensionsPage,
@@ -19,7 +19,12 @@ import {
   type WorkspaceView,
 } from "./components/workspace-pages";
 import { HandoffBanner, SessionHistory } from "./components/session-tools";
-import { InboxPage, RecoveryPage, SessionWorkbench } from "./components/next/workbench";
+import {
+  InboxPage,
+  RecoveryPage,
+  SessionWorkbench,
+  ControlHeartbeat,
+} from "./components/next/workbench";
 import { AutomationPage } from "./components/next/automation";
 import { IdentityPage } from "./components/next/identity";
 import { DataPage } from "./components/next/data";
@@ -27,7 +32,7 @@ import { FleetPage } from "./components/next/fleet";
 import { PlatformPage } from "./components/next/platform";
 
 export function App() {
-  const { sessions, error, refresh } = useSessions();
+  const { sessions, error: sessionsError, refresh } = useSessions();
   const [selectedId, selectSession] = useUrlParam("session");
   const [view, setView] = useUrlParam("view");
   const currentView: WorkspaceView =
@@ -36,11 +41,20 @@ export function App() {
     if (view) setView(null);
     selectSession(id);
   };
-  // The picked session while it is listed; otherwise the newest live one.
+  const selected = useResource<SessionDetails>(
+    selectedId && sessions && !sessions.some((session) => session.id === selectedId)
+      ? sessionPath(selectedId)
+      : null,
+    3000,
+  );
+  const error = sessionsError || selected.error;
+  // Never display another browser while an explicitly selected one is loading.
   const session: SessionDetails | null | undefined =
     sessions === undefined
       ? undefined
-      : sessions.find((s) => s.id === selectedId) ?? sessions[0] ?? null;
+      : selectedId
+      ? sessions.find((s) => s.id === selectedId) ?? selected.data
+      : sessions[0] ?? null;
   const onSessionChange = (started?: SessionDetails) => {
     if (started) select(started.id);
     else if (session && selectedId === session.id) select(null);
@@ -61,6 +75,7 @@ export function App() {
 
   return (
     <div className="shell" data-rail={railOpen ? "open" : "closed"}>
+      <ControlHeartbeat />
       {railOpen && (
         <Rail
           status={status}

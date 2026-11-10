@@ -101,6 +101,7 @@ const reviewSource = (review: RecordValue): WorkSource => ({
     preparedStateHash: review.preparedStateHash,
     contentHash: review.contentHash,
     stepId: review.stepId,
+    expiresAt: review.expiresAt,
   },
 });
 

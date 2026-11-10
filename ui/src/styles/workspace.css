@@ -174,6 +174,26 @@
 .state-explanation summary {
   cursor: pointer;
 }
+.state-explanation summary span {
+  margin-left: 12px;
+  color: var(--sand-10);
+}
+.control-strip > div:first-child {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.dock {
+  position: relative;
+}
+.dock-reconnect {
+  position: absolute;
+  right: 10px;
+  top: 6px;
+  z-index: 2;
+  background: var(--sand-1);
+}
 .state-explanation ul {
   display: grid;
   gap: 7px;
@@ -190,6 +210,33 @@
   border-left: 3px solid var(--accent);
   padding: 0 14px;
   margin: 16px 0;
+}
+.proposal-fields {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+  font-size: 12px;
+}
+.proposal-fields dt {
+  font-weight: 600;
+  color: var(--sand-10);
+  margin-bottom: 5px;
+}
+.proposal-fields dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.attachment-review {
+  padding-left: 18px;
+  font-size: 12px;
+}
+.attachment-review code {
+  display: block;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
 }
 .inbox-toolbar {
   display: flex;

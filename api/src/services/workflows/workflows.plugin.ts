@@ -31,6 +31,7 @@ interface Options {
   replayOrigins?: string[];
   replayAllowPrivateNetworks?: boolean;
   releaseReplaySession?: (sessionId: string) => Promise<void>;
+  holdReviewSession?: (sessionId: string) => () => void;
   evidenceAllowed?: (sessionId: string) => boolean;
   isSensitiveSession?: (sessionId: string) => boolean;
   vaultFill?: (
@@ -61,6 +62,8 @@ const plugin: FastifyPluginAsync<Options> = async (server, options) => {
     runtime,
     events: server.events,
     replayOrigins,
+    holdReviewSession:
+      options.holdReviewSession ?? ((sessionId) => server.sessionService.holdActivity(sessionId)),
     releaseReplaySession:
       options.releaseReplaySession ??
       (async (sessionId) => {

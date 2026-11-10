@@ -88,6 +88,16 @@ and again before execution through the artifact access-control adapter. Rejectio
 Review points are selected by the procedure author; ordinary actions have no
 automatic approval requirement.
 
+Pending reviews protect the prepared browser from idle expiry and queue
+preemption for 15 minutes, matching the default human-handoff window. A command
+step can set `reviewTimeoutMs` from 1 second to 1 hour. The session's hard lifetime
+and explicit manual parking still apply. `expiresAt` is returned with the card;
+at the deadline the review becomes `expired`, its waiting run is cancelled and
+the idle hold is released. Approval, rejection, run cancellation and shutdown
+also release the hold. A parked or changed browser still needs a newly prepared
+review if its observed state no longer matches; this grace period does not make
+browser form state durable.
+
 ## Completion receipts
 
 `GET /v1/receipts/:runId` reconciles durable results into a receipt. Status is

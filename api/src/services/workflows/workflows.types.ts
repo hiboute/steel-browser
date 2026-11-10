@@ -54,6 +54,7 @@ export const ProcedureStepSchema = z.discriminatedUnion("kind", [
       kind: z.literal("commands"),
       input: json,
       review: ProposalTemplateSchema.optional(),
+      reviewTimeoutMs: z.number().int().min(1000).max(3600000).optional(),
       retry: z
         .object({
           maxAttempts: z.number().int().min(1).max(5),
@@ -181,8 +182,9 @@ export interface ReviewRecord {
   contentHash: string;
   preparedStateHash: string;
   preparedSnapshot: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "expired";
   createdAt: string;
+  expiresAt: string;
   decidedAt?: string;
   decisionBy?: string;
 }

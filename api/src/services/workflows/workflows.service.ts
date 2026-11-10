@@ -60,6 +60,7 @@ interface Dependencies {
   replayOrigins?: string[];
   replayAllowPrivateNetworks?: boolean;
   releaseReplaySession?: (sessionId: string) => Promise<void>;
+  holdReviewSession?: (sessionId: string) => () => void;
   evidenceAllowed?: (sessionId: string) => boolean;
   isSensitiveSession?: (sessionId: string) => boolean;
   vaultFill?: (
@@ -78,6 +79,7 @@ const ReviewInput = z
     proposal: ProposalSchema,
     command: z.record(z.string(), z.unknown()),
     actionStepId: ProductId,
+    timeoutMs: z.number().int().min(1000).max(3600000).default(900000),
   })
   .strict();
 const readOnly = new Set(["get", "is", "snapshot", "find", "screenshot"]);
@@ -108,6 +110,10 @@ export class WorkflowService {
     }
   >();
   private readonly now: () => Date;
+  private readonly reviewHolds = new Map<
+    string,
+    { runId: string; sessionId: string; release: () => void; timer: NodeJS.Timeout }
+  >();
   constructor(private readonly deps: Dependencies) {
     this.now = deps.now ?? (() => new Date());
     this.deps.runtime.registerKind("product.review", {
@@ -156,6 +162,9 @@ export class WorkflowService {
           void this.refreshReceipt(run).catch((e) => this.deps.onError?.(e));
         if (run && terminal.has(run.status))
           void this.finishReplay(run.id).catch((error) => this.deps.onError?.(error));
+        if (run && terminal.has(run.status))
+          for (const [id, hold] of this.reviewHolds)
+            if (hold.runId === run.id) this.releaseReviewHold(id);
       }
       if (event.type === "watcher.run")
         void this.onWatcher(event.id, event.data).catch((e) => this.deps.onError?.(e));
@@ -169,6 +178,17 @@ export class WorkflowService {
       for (const run of await this.deps.runtime.list(this.systemActor(owner)))
         if (run.metadata?.productProcedureId) await this.refreshReceipt(run);
     }
+    for (const file of await this.deps.store.list("workflows/reviews"))
+      if (file.endsWith(".json")) {
+        const review = await this.deps.store.read<ReviewRecord>(`workflows/reviews/${file}`);
+        if (review?.status !== "pending") continue;
+        if (Date.parse(review.expiresAt ?? review.createdAt) <= this.now().getTime())
+          await this.expireReview(review.id);
+        else {
+          const run = await this.deps.runtime.get(review.runId, this.systemActor(review.ownerId));
+          if (!terminal.has(run.status) && run.sessionId) this.holdReview(review, run.sessionId);
+        }
+      }
     if (startTimer) {
       this.timer = setInterval(() => void this.tick().catch((e) => this.deps.onError?.(e)), 15000);
       this.timer.unref();
@@ -178,6 +198,7 @@ export class WorkflowService {
     this.closed = true;
     clearInterval(this.timer);
     this.unsubscribe?.();
+    for (const id of this.reviewHolds.keys()) this.releaseReviewHold(id);
     const guards = [...this.replayGuards.values()];
     await Promise.allSettled([...this.replayGuards.keys()].map((id) => this.finishReplay(id)));
     await Promise.allSettled(guards.filter((g) => g.closed).map((g) => g.task));
@@ -191,6 +212,60 @@ export class WorkflowService {
       () => undefined,
     );
     return task;
+  }
+  private holdReview(review: ReviewRecord, sessionId: string) {
+    if (this.reviewHolds.has(review.id) || review.status !== "pending") return;
+    const milliseconds = Date.parse(review.expiresAt) - this.now().getTime();
+    if (milliseconds <= 0) return;
+    const release = this.deps.holdReviewSession?.(sessionId) ?? (() => {});
+    const timer = setTimeout(
+      () => void this.expireReview(review.id).catch((error) => this.deps.onError?.(error)),
+      Math.min(milliseconds, 3600000),
+    );
+    timer.unref();
+    this.reviewHolds.set(review.id, { runId: review.runId, sessionId, release, timer });
+  }
+  private releaseReviewHold(id: string) {
+    const hold = this.reviewHolds.get(id);
+    if (!hold) return;
+    clearTimeout(hold.timer);
+    hold.release();
+    this.reviewHolds.delete(id);
+  }
+  private async expireReview(id: string) {
+    const expired = await this.serial(async () => {
+      const current = await this.deps.store.read<ReviewRecord>(`workflows/reviews/${id}.json`);
+      if (
+        !current ||
+        current.status !== "pending" ||
+        Date.parse(current.expiresAt ?? current.createdAt) > this.now().getTime()
+      )
+        return undefined;
+      this.releaseReviewHold(id);
+      const next: ReviewRecord = {
+        ...current,
+        status: "expired",
+        decidedAt: this.now().toISOString(),
+        decisionBy: "deadline",
+      };
+      await this.deps.store.write(`workflows/reviews/${id}.json`, next);
+      return next;
+    });
+    if (expired) {
+      this.deps.events.publish("workflow.review.updated", {
+        id,
+        runId: expired.runId,
+        ownerId: expired.ownerId,
+        status: "expired",
+      });
+      const actor = this.systemActor(expired.ownerId);
+      const run = await this.deps.runtime.get(expired.runId, actor);
+      if (
+        ["paused", "running"].includes(run.status) &&
+        run.steps[run.cursor]?.id === expired.stepId
+      )
+        await this.deps.runtime.cancel(expired.runId, actor);
+    }
   }
   private async finishReplay(id: string) {
     const guard = this.replayGuards.get(id);
@@ -382,6 +457,7 @@ export class WorkflowService {
             proposal: ProposalSchema.parse(step.review),
             command: commands,
             actionStepId: step.id,
+            timeoutMs: step.reviewTimeoutMs ?? 900000,
           },
         });
       steps.push({ id: step.id, kind: "commands", input: commands, retry: step.retry });
@@ -522,6 +598,7 @@ export class WorkflowService {
           preparedSnapshot: state.snapshot,
           status: "pending",
           createdAt: this.now().toISOString(),
+          expiresAt: new Date(this.now().getTime() + input.timeoutMs).toISOString(),
         };
         await this.deps.store.write(`workflows/reviews/${id}.json`, review);
         this.deps.events.publish(
@@ -532,6 +609,14 @@ export class WorkflowService {
       }
       return review;
     });
+    if (result.status === "pending" && Date.parse(result.expiresAt) <= this.now().getTime()) {
+      await this.expireReview(result.id);
+      throw new WorkflowError("review_expired", "The submission review deadline elapsed", 409);
+    }
+    if (result.status === "pending" && ctx.run.sessionId)
+      this.holdReview(result, ctx.run.sessionId);
+    if (result.status === "expired")
+      throw new WorkflowError("review_expired", "The submission review deadline elapsed", 409);
     if (result.status === "rejected")
       throw new WorkflowError("review_rejected", "The proposed action was rejected", 409);
     return result.status === "approved"
@@ -586,6 +671,7 @@ export class WorkflowService {
     actor: WorkflowActor,
   ) {
     this.assertActor(actor);
+    ProductId.parse(id);
     if (actor.role !== "operator")
       throw new WorkflowError(
         "operator_required",
@@ -598,8 +684,15 @@ export class WorkflowService {
     })
       .strict()
       .parse(input);
+    await this.expireReview(id);
     const review = await this.serial(async () => {
       const current = await this.getReview(id, actor);
+      if (current.status === "expired")
+        throw new WorkflowError(
+          "review_expired",
+          "The review deadline elapsed; prepare a new run",
+          409,
+        );
       if (!equalDigest(current.contentHash, input.contentHash))
         throw new WorkflowError(
           "review_content_changed",
@@ -612,6 +705,9 @@ export class WorkflowService {
           "This review already has a decision",
           409,
         );
+      const run = await this.deps.runtime.get(current.runId, actor);
+      if (run.status !== "paused" || run.steps[run.cursor]?.id !== current.stepId)
+        throw new WorkflowError("review_not_waiting", "The run is not waiting on this review", 409);
       const next: ReviewRecord = {
         ...current,
         status: input.decision === "approve" ? "approved" : "rejected",
@@ -621,6 +717,7 @@ export class WorkflowService {
       await this.deps.store.write(`workflows/reviews/${id}.json`, next);
       return next;
     });
+    this.releaseReviewHold(id);
     this.deps.events.publish("workflow.review.updated", {
       id,
       runId: review.runId,
@@ -994,6 +1091,7 @@ export class WorkflowService {
   }
   private async runTick() {
     if (this.closed) return;
+    for (const id of this.reviewHolds.keys()) await this.expireReview(id);
     for (const schedule of Object.values(this.manifest.schedules)) {
       if (
         !schedule.enabled ||

@@ -105,12 +105,15 @@ let runtime: Runtime;
 let events: PlatformEvents;
 let service: WorkflowService;
 let now: Date;
+let reviewHold: (sessionId: string) => () => void, reviewRelease: () => void;
 beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "steel-workflows-"));
   store = new PlatformStore(root, "test-key");
   runtime = new Runtime();
   events = new PlatformEvents();
   now = new Date("2026-11-10T12:00:00Z");
+  reviewRelease = vi.fn();
+  reviewHold = vi.fn(() => reviewRelease);
   service = new WorkflowService({
     store,
     runtime,
@@ -120,6 +123,7 @@ beforeEach(async () => {
     releaseReplaySession: async () => {},
     evidenceAllowed: () => true,
     authorizeWatcher: () => {},
+    holdReviewSession: reviewHold,
   });
   await service.initialize(false);
 });
@@ -267,6 +271,7 @@ describe("exact-content reviews", () => {
     const step = run.steps[1];
     const result = await runtime.kinds.get("product.review")!.execute(runtime.context(run, step));
     run.status = "paused";
+    run.cursor = 1;
     return { run, step, result, review: (await service.listReviews(alice))[0] };
   }
   it("pauses, rejects stale content and agent approvals, resumes only after an operator decision", async () => {
@@ -340,6 +345,41 @@ describe("exact-content reviews", () => {
       operator,
     );
     expect(run.status).toBe("cancelled");
+  });
+  it("holds idle expiry only through the bounded review window and refuses late approval", async () => {
+    const { run, review } = await pending();
+    expect(reviewHold).toHaveBeenCalledWith(run.sessionId);
+    expect(Date.parse(review.expiresAt) - Date.parse(review.createdAt)).toBe(900000);
+    now = new Date(now.getTime() + 899999);
+    await service.tick();
+    expect(reviewRelease).not.toHaveBeenCalled();
+    expect((await service.getReview(review.id, alice)).status).toBe("pending");
+    now = new Date(now.getTime() + 2);
+    await service.tick();
+    expect(reviewRelease).toHaveBeenCalledOnce();
+    expect((await service.getReview(review.id, alice)).status).toBe("expired");
+    expect(run.status).toBe("cancelled");
+    await expect(
+      service.decideReview(
+        review.id,
+        { decision: "approve", contentHash: review.contentHash },
+        operator,
+      ),
+    ).rejects.toMatchObject({ code: "review_expired" });
+  });
+  it("releases a pending review hold on cancellation and rejects stale decisions", async () => {
+    const { run, review } = await pending();
+    run.status = "cancelled";
+    events.publish("run.updated", { run });
+    expect(reviewRelease).toHaveBeenCalledOnce();
+    await expect(
+      service.decideReview(
+        review.id,
+        { decision: "approve", contentHash: review.contentHash },
+        operator,
+      ),
+    ).rejects.toMatchObject({ code: "review_not_waiting" });
+    expect((await service.getReview(review.id, alice)).status).toBe("pending");
   });
 });
 

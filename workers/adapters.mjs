@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { isIP } from "node:net";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -19,6 +20,11 @@ export class PlaywrightAdapter {
   constructor(engine, options = {}) { this.engine = engine; this.options = options; }
   async launch(sessionId, p) {
     const playwright = this.options.playwright ?? await import("playwright");
+    let strictProxyIp;
+    if (this.options.strict && this.engine === "chromium") {
+      try { strictProxyIp = new URL(this.options.proxy?.server).hostname; } catch { throw new Error("invalid_strict_proxy"); }
+      if (isIP(strictProxyIp) !== 4) throw new Error("invalid_strict_proxy");
+    }
     if (this.engine === "android") {
       if (!this.options.androidSerial) throw new Error("android_serial_required");
       const devices = await playwright._android.devices(); this.device = devices.find(d => d.serial() === this.options.androidSerial);
@@ -28,7 +34,7 @@ export class PlaywrightAdapter {
       const profile = path.join(this.options.profileRoot, sessionId);
       await mkdir(profile, { recursive: true, mode: 0o700 });
       const browser = playwright[this.engine]; if (!browser) throw new Error("unsupported_engine");
-      this.context = await browser.launchPersistentContext(profile, { headless: p.headless ?? this.options.headless ?? true, ...(this.options.channel && this.engine === "chromium" ? { channel: this.options.channel } : {}), ...(this.options.executablePath && this.engine === "chromium" ? { executablePath: this.options.executablePath } : {}), proxy: this.options.proxy, viewport: this.options.viewport ?? { width: 1280, height: 900 }, ...(this.options.strict && this.engine === "chromium" ? { args: ["--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", "--host-resolver-rules=MAP * ~NOTFOUND", "--proxy-bypass-list=<-loopback>"] } : {}) });
+      this.context = await browser.launchPersistentContext(profile, { headless: p.headless ?? this.options.headless ?? true, ...(this.options.channel && this.engine === "chromium" ? { channel: this.options.channel } : {}), ...(this.options.executablePath && this.engine === "chromium" ? { executablePath: this.options.executablePath } : {}), proxy: this.options.proxy, viewport: this.options.viewport ?? { width: 1280, height: 900 }, ...(this.options.strict && this.engine === "chromium" ? { args: ["--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE ${strictProxyIp}`, "--proxy-bypass-list=<-loopback>"] } : {}) });
     }
     this.context.setDefaultTimeout(15_000); this.context.setDefaultNavigationTimeout(30_000);
     this.page = this.context.pages()[0] ?? await this.context.newPage();

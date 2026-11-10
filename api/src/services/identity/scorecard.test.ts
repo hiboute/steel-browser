@@ -91,6 +91,27 @@ describe("stealth scorecard", () => {
     expect(await busy.history()).toHaveLength(2);
   });
 
+  it("gives no score to a mode whose page or test pages could not be read", async () => {
+    const blind = { ...report([]), observed: { status: "unavailable", reason: "timeout" } };
+    const { s } = service({
+      inspect: async (id) =>
+        id === "compatible" ? blind : report([["locale_mismatch", "warning"]]),
+      lab: async (id) =>
+        id === "native"
+          ? ({ checks: [{ name: "fixture-runtime", status: "untested" }] } as any)
+          : lab(),
+    });
+    const card = await s.run("manual");
+    expect(card.modes.map((m) => [m.mode, m.status])).toEqual(
+      expect.arrayContaining([
+        ["compatible", "failed"],
+        ["native", "failed"],
+        ["legacy", "measured"],
+      ]),
+    );
+    expect(card.modes.find((m) => m.mode === "compatible")?.score).toBeUndefined();
+    expect(card.recommended).toBe("legacy");
+  });
   it("honours a pinned mode and the legacy opt-out, and knows when a run is due", async () => {
     expect(await service({ configured: "legacy" }).s.defaultMode()).toBeUndefined();
     expect(await service({ configured: undefined }).s.defaultMode()).toBeUndefined();

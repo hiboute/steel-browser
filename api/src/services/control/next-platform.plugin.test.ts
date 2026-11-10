@@ -144,6 +144,29 @@ describe("global route fencing", () => {
   });
 });
 
+it("keeps the ownership record of a browser still open on a paired worker", async () => {
+  vi.stubEnv("CONTROL_RECORD_RETENTION_DAYS", "1");
+  const app = await setup();
+  const open = "11111111-1111-4111-8111-111111111111",
+    closed = "22222222-2222-4222-8222-222222222222";
+  (app as any).fleet = {
+    listSessions: () => [
+      { id: open, state: "active" },
+      { id: closed, state: "closed" },
+    ],
+  };
+  await app.control.registerResource(open, "agent");
+  await app.control.registerResource(closed, "agent");
+  vi.useFakeTimers({ now: Date.now() + 3 * 86_400_000, toFake: ["Date"] });
+  try {
+    await app.storage.prune();
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(app.control.readers(open)).toEqual(["agent"]);
+  expect(app.control.readers(closed)).toEqual([]);
+});
+
 it("binds legacy primary reads and hides other principals' queue and slot identity", async () => {
   const app = await setup();
   for (const url of [

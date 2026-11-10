@@ -77,6 +77,10 @@ const plugin: FastifyPluginAsync = async (server) => {
     new Set([
       ...server.sessionService.listSessions(true).map((session) => session.id),
       server.sessionService.activeSession?.id,
+      // Browsers on paired workers live in the fleet, not in the local pool.
+      ...(((server as any).fleet?.listSessions() ?? []) as { id: string; state: string }[])
+        .filter((session) => session.state !== "closed")
+        .map((session) => session.id),
     ]) as Set<string>;
   const storage: StorageService = new StorageService({
     store: server.store,

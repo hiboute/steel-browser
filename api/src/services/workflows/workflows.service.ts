@@ -785,9 +785,15 @@ export class WorkflowService {
       url: typeof (body.page as any)?.url === "string" ? (body.page as any).url : undefined,
     };
     if (!available) result.reason = "Browser observation failed or was masked";
-    const sensitive = Boolean(
-      ctx.run.sessionId && this.deps.isSensitiveSession?.(ctx.run.sessionId),
-    );
+    const isSensitive = () =>
+      Boolean(ctx.run.sessionId && this.deps.isSensitiveSession?.(ctx.run.sessionId));
+    const canSaveEvidence = () =>
+      Boolean(
+        ctx.run.sessionId &&
+          !isSensitive() &&
+          this.deps.evidenceAllowed?.(ctx.run.sessionId) === true,
+      );
+    const sensitive = isSensitive();
     if (sensitive) {
       result.actual = "[redacted sensitive session]";
       result.expected = "[redacted sensitive session]";
@@ -804,7 +810,12 @@ export class WorkflowService {
         `${ctx.run.id}:${ctx.step.id}:evidence:${attempt}`,
       );
       const frame = (screenshot.body.results as any[])?.[0];
-      if (frame?.ok && typeof frame.data === "string" && frame.data.length <= 8_000_000) {
+      if (
+        canSaveEvidence() &&
+        frame?.ok &&
+        typeof frame.data === "string" &&
+        frame.data.length <= 8_000_000
+      ) {
         const artifactId = digest({ runId: ctx.run.id, stepId: ctx.step.id });
         const bytes = Buffer.from(frame.data, "base64");
         await this.deps.store.write(`workflows/evidence/${artifactId}.json`, {
@@ -813,14 +824,21 @@ export class WorkflowService {
           mime: "image/png",
           data: frame.data,
         });
-        result.evidence = {
-          type: "screenshot",
-          artifactId,
-          sha256: createHash("sha256").update(bytes).digest("hex"),
-        };
+        if (canSaveEvidence())
+          result.evidence = {
+            type: "screenshot",
+            artifactId,
+            sha256: createHash("sha256").update(bytes).digest("hex"),
+          };
+        else await this.deps.store.remove(`workflows/evidence/${artifactId}.json`);
       } else result.reason = "Assertion observed; optional screenshot unavailable";
     } else if (assertion.evidence === "screenshot")
       result.reason = "Persisted screenshot evidence is disabled for this session";
+    // Privacy may change while the command or screenshot is in flight.
+    if (isSensitive()) {
+      result.actual = "[redacted sensitive session]";
+      result.expected = "[redacted sensitive session]";
+    }
     return { status: "succeeded" as const, output: { assertion: result } };
   }
 

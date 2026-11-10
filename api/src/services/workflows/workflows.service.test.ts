@@ -105,6 +105,7 @@ let runtime: Runtime;
 let events: PlatformEvents;
 let service: WorkflowService;
 let now: Date;
+let sensitive: boolean;
 let reviewHold: (sessionId: string) => () => void, reviewRelease: () => void;
 beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), "steel-workflows-"));
@@ -112,6 +113,7 @@ beforeEach(async () => {
   runtime = new Runtime();
   events = new PlatformEvents();
   now = new Date("2026-11-10T12:00:00Z");
+  sensitive = false;
   reviewRelease = vi.fn();
   reviewHold = vi.fn(() => reviewRelease);
   service = new WorkflowService({
@@ -122,6 +124,7 @@ beforeEach(async () => {
     replayOrigins: ["https://fixture.test"],
     releaseReplaySession: async () => {},
     evidenceAllowed: () => true,
+    isSensitiveSession: () => sensitive,
     authorizeWatcher: () => {},
     holdReviewSession: reviewHold,
   });
@@ -442,6 +445,33 @@ describe("grounded completion receipts", () => {
     ).toThrow("read-only");
     run.status = "completed";
     expect((await service.getReceipt(run.id, alice)).status).toBe("uncertain");
+  });
+  it("discards evidence and masks values when privacy changes during screenshot capture", async () => {
+    const p = await service.saveProcedure(procedure(), alice);
+    const run = await service.startProcedure(
+      p.id,
+      { inputs: { name: "Ada" }, idempotencyKey: "privacy-race" },
+      alice,
+    );
+    const step = structuredClone(run.steps.at(-1)!);
+    (step.input as any).evidence = "screenshot";
+    const ctx = runtime.context(run, step);
+    ctx.execute = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, body: { results: [{ ok: true, value: "Done" }] } })
+      .mockImplementationOnce(async () => {
+        sensitive = true;
+        return {
+          status: 200,
+          body: { results: [{ ok: true, data: Buffer.from("private image").toString("base64") }] },
+        };
+      });
+    const outcome = await runtime.kinds.get("product.assert")!.execute(ctx);
+    const assertion = (outcome.output as any).assertion;
+    expect(assertion.evidence).toBeUndefined();
+    expect(assertion.actual).toBe("[redacted sensitive session]");
+    expect(assertion.expected).toBe("[redacted sensitive session]");
+    expect(await store.list("workflows/evidence")).toEqual([]);
   });
   it("stores optional screenshot evidence encrypted with a different command idempotency key", async () => {
     const p = await service.saveProcedure(procedure(), alice);

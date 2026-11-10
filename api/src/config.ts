@@ -1,6 +1,8 @@
 import { FastifyServerOptions } from "fastify";
 import { env } from "./env.js";
 import stringify from "json-stringify-safe";
+import { logValue, logText, requestLog } from "./utils/log-redaction.js";
+import pino from "pino";
 
 interface LoggingConfig {
   [key: string]: FastifyServerOptions["logger"];
@@ -24,8 +26,15 @@ const credentialRedaction = {
   censor: "[redacted]",
 };
 
+const serializers = {
+  req: requestLog,
+  err: (error: Error) =>
+    logValue(pino.stdSerializers.err(error)) as ReturnType<typeof pino.stdSerializers.err>,
+};
+
 export const loggingConfig: LoggingConfig = {
   development: {
+    serializers,
     redact: credentialRedaction,
     transport: {
       target: "pino-pretty",
@@ -43,9 +52,9 @@ export const loggingConfig: LoggingConfig = {
                   let resultingMessage = "";
                   if (typeof inputArgs[0] === "string") {
                     const [message, ...args] = inputArgs;
-                    resultingMessage = `${message} ${stringify(args)}`;
+                    resultingMessage = `${logText(message)} ${stringify(logValue(args))}`;
                   } else {
-                    resultingMessage = stringify(inputArgs);
+                    resultingMessage = stringify(logValue(inputArgs));
                   }
                   return method.apply(this, [resultingMessage]);
                 } catch (error) {
@@ -55,13 +64,16 @@ export const loggingConfig: LoggingConfig = {
                   );
                 }
               }
-              return method.apply(this, inputArgs);
+              return method.apply(
+                this,
+                inputArgs.map((value) => logValue(value)),
+              );
             },
           },
         }
       : {}),
     level: process.env.LOG_LEVEL || "debug",
   },
-  production: { redact: credentialRedaction },
+  production: { redact: credentialRedaction, serializers },
   test: false,
 };

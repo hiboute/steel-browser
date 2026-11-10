@@ -318,6 +318,7 @@ export class RunService {
     id: string,
     actor: Actor,
     options: {
+      controlToken?: string;
       resolution?: { stepId: string; outcome: "applied" | "not_applied"; evidence: string };
     } = {},
   ) {
@@ -326,6 +327,8 @@ export class RunService {
       if (!["paused", "uncertain", "failed"].includes(r.status))
         throw new AccessError("run_state", "Only paused, uncertain or failed runs can resume", 409);
       if (this.active.has(id)) await this.active.get(id)!.done;
+      if (options.controlToken && r.sessionId)
+        this.control.assert(r.sessionId, actor, options.controlToken);
       if (r.status === "uncertain") {
         const resolution = options.resolution;
         if (
@@ -345,6 +348,16 @@ export class RunService {
           r.cursor++;
         } else result.status = "pending";
       } else if (r.results[r.cursor]) r.results[r.cursor].status = "pending";
+      if (options.controlToken && r.sessionId) {
+        r.status = "paused";
+        r.pauseReason = "control_delegation_pending";
+        await this.save(r);
+        const delegated = await this.control.transfer(r.sessionId, actor, options.controlToken, {
+          mode: "agent",
+          ownerId: r.ownerId,
+        });
+        this.delegated.set(r.id, delegated.token);
+      }
       r.status = "queued";
       delete r.pauseReason;
       await this.save(r);

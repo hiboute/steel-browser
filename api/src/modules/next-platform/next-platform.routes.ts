@@ -131,10 +131,8 @@ export default async function routes(server: FastifyInstance) {
     server.runs.cancel(sid(req), server.access.actor(req)),
   );
   route("POST", "/runs/:id/resume", "resume_task_run", (req) =>
-    server.runs.resume(
-      sid(req),
-      server.access.actor(req),
-      z
+    server.runs.resume(sid(req), server.access.actor(req), {
+      ...z
         .object({
           resolution: z
             .object({
@@ -145,7 +143,8 @@ export default async function routes(server: FastifyInstance) {
             .optional(),
         })
         .parse(req.body ?? {}),
-    ),
+      controlToken: token(req) || undefined,
+    }),
   );
   route("GET", "/checkpoints", "list_browser_checkpoints", async (req) => ({
     checkpoints: await server.checkpoints.list(server.access.actor(req)),

@@ -1,3 +1,4 @@
+import vm from "node:vm";
 import Fastify from "fastify";
 import http from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
@@ -68,11 +69,24 @@ describe("scoped DevTools", () => {
       url: `/v1/sessions/s/devtools?controlTicket=${ticket.ticket}`,
       headers: auth,
     });
-    expect(response.statusCode, response.body).toBe(302);
-    expect(response.headers.location).toContain("/v1/sessions/s/devtools/inspector.html?");
-    const target = new URL(response.headers.location!, "http://localhost");
-    const socket = target.searchParams.get("ws")!;
-    expect(socket).toContain("/v1/sessions/s/cdp?pageId=page-id&controlTicket=");
+    expect(response.statusCode, response.body).toBe(200);
+    const script = response.body.match(/<script nonce="[^"]+">([\s\S]+)<\/script>/)![1];
+    let destination = "";
+    vm.runInNewContext(script, {
+      URL,
+      location: {
+        href: "https://workshop.test/api/v1/sessions/s/devtools?controlTicket=ignored",
+        protocol: "https:",
+        pathname: "/api/v1/sessions/s/devtools",
+        replace: (url: string) => {
+          destination = url;
+        },
+      },
+    });
+    const target = new URL(destination);
+    expect(target.pathname).toBe("/api/v1/sessions/s/devtools/inspector.html");
+    const socket = target.searchParams.get("wss")!;
+    expect(socket).toContain("workshop.test/ws/v1/sessions/s/cdp?pageId=page-id&controlTicket=");
     expect(control.consumeTicket(ticket.ticket, "s", "cdp").generation).toBe(
       lease.lease.generation,
     );

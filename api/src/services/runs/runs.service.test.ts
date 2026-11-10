@@ -290,3 +290,19 @@ it("does not auto-execute a task whose explicit control delegation failed", asyn
     { status: "paused", pauseReason: "control_delegation_pending" },
   ]);
 });
+
+it("delegates an explicitly held human lease when resuming a paused task", async () => {
+  const execute = vi
+    .fn()
+    .mockResolvedValueOnce({ status: "paused", reason: "needs_human" })
+    .mockResolvedValueOnce({ status: "succeeded" });
+  runs.registerKind("test", { validate: (x) => x, replay: "safe", execute });
+  const r = await runs.create({ sessionId: "s", steps: [step] }, actor);
+  await settled(r.id, "paused");
+  const lease = await control.acquire("s", actor, { mode: "human" });
+  await runs.resume(r.id, actor, { controlToken: lease.token });
+  await settled(r.id, "completed");
+  expect(() => control.assert("s", actor, lease.token)).toThrow();
+  expect(JSON.stringify(await store.read(`runs/${r.id}.json`))).not.toContain(lease.token);
+  expect(execute).toHaveBeenCalledTimes(2);
+});

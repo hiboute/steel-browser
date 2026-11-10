@@ -1,0 +1,11 @@
+FROM mcr.microsoft.com/playwright:v1.62.0-noble
+WORKDIR /app/workers
+COPY workers/package*.json ./
+RUN npm ci --omit=dev
+COPY workers/*.mjs ./
+COPY --chmod=755 workers/strict-entrypoint.sh /app/workers/strict-entrypoint.sh
+RUN apt-get update && apt-get install -y --no-install-recommends iptables util-linux && rm -rf /var/lib/apt/lists/*
+ENV STEEL_WORKER_STATE_DIR=/state
+VOLUME /state
+USER pwuser
+ENTRYPOINT ["node", "/app/workers/worker.mjs"]

@@ -79,6 +79,8 @@ RUN apt-get update && \
     dbus-x11 \
     procps \
     tini \
+    tesseract-ocr \
+    tesseract-ocr-eng \
     x11-xserver-utils
 
 # Install Chrome and ChromeDriver
@@ -112,3 +114,4 @@ ENV HOST_IP=localhost \
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/api/entrypoint.sh"]
 
 COPY --from=build /app /app
+COPY workers/proxy-gateway.mjs /app/proxy-gateway.mjs

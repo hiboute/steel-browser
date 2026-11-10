@@ -1,37 +1,92 @@
-name: Build and Push Latest Docker Image to GHCR
+name: Test and publish exact production images
 
 on:
+  pull_request:
+    branches: [main]
   push:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: production-images-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  push_to_registry:
-    name: Build and Push Latest Docker Image to GHCR
+  production-images:
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
-      - name: Check out the repo
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to the Container registry
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build candidates once
+        run: |
+          docker build --label org.opencontainers.image.revision="$GITHUB_SHA" -t steel-api-candidate -f api/Dockerfile .
+          docker build --label org.opencontainers.image.revision="$GITHUB_SHA" -t steel-ui-candidate -f ui/Dockerfile .
+          docker build --label org.opencontainers.image.revision="$GITHUB_SHA" -t steel-worker-candidate -f workers/Dockerfile .
+      - name: Test the exact API image and installed Chromium
+        run: |
+          mkdir -p image-evidence
+          chmod 777 image-evidence
+          docker run --rm --network none --shm-size 2g --entrypoint node \
+            -e STEEL_BUILD_REVISION="$GITHUB_SHA" -e STEEL_IMAGE_REPORT=/evidence/production-image-report.json \
+            -v "$PWD/tests/production-image.mjs:/tmp/production-image.mjs:ro" \
+            -v "$PWD/image-evidence:/evidence" steel-api-candidate /tmp/production-image.mjs
+      - name: Test all installed worker engines
+        run: |
+          docker run --rm --network none --shm-size 2g --entrypoint node \
+            -e STEEL_TEST_ENGINES=chromium,firefox,webkit steel-worker-candidate \
+            --test /app/workers/adapters.test.mjs /app/workers/browser.integration.test.mjs
+      - name: Verify the UI candidate serves its built assets
+        run: |
+          docker run -d --name steel-ui-candidate-test -e API_URL=http://127.0.0.1:3000 steel-ui-candidate
+          trap 'docker rm -f steel-ui-candidate-test >/dev/null' EXIT
+          for i in $(seq 1 20); do
+            docker exec steel-ui-candidate-test wget -q -O /tmp/index.html http://127.0.0.1/ && break
+            sleep 1
+          done
+          docker exec steel-ui-candidate-test sh -c 'test -s /tmp/index.html && grep -q "assets/" /tmp/index.html'
+      - name: Authenticate publication
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ secrets.GH_USERNAME }}
-          password: ${{ secrets.GH_TOKEN }}
-
-      - name: Build and push the latest Steel Browser image
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish only tested image IDs and record immutable digests
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE_OWNER: ${{ github.repository_owner }}
         run: |
-          docker buildx build --platform linux/amd64,linux/arm64 --push -t ghcr.io/steel-dev/steel-browser:latest .
-
-      - name: Build and push the latest Steel Browser API image
-        run: |
-          docker buildx build --platform linux/amd64,linux/arm64 --push -t ghcr.io/steel-dev/steel-browser-api:latest . -f ./api/Dockerfile
-
-      - name: Build and push the latest Steel Browser UI image
-        run: |
-          docker buildx build --platform linux/amd64,linux/arm64 --push -t ghcr.io/steel-dev/steel-browser-ui:latest . -f ./ui/Dockerfile
+          set -euo pipefail
+          for component in api ui worker; do
+            image="ghcr.io/${IMAGE_OWNER,,}/steel-browser-${component}:${GITHUB_SHA}"
+            docker tag "steel-${component}-candidate" "$image"
+            docker push "$image"
+            docker image inspect "$image" > "image-evidence/${component}-image.json"
+          done
+          python3 - <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path('image-evidence')
+          manifest = {'schemaVersion': 1, 'repository': os.environ['GITHUB_REPOSITORY'], 'revision': os.environ['GITHUB_SHA'], 'runId': os.environ['GITHUB_RUN_ID'], 'tested': True, 'images': {}}
+          for component in ('api', 'ui', 'worker'):
+              image = json.loads((root / f'{component}-image.json').read_text())[0]
+              prefix = f"ghcr.io/{os.environ['IMAGE_OWNER'].lower()}/steel-browser-{component}@sha256:"
+              digests = [ref for ref in image['RepoDigests'] if ref.startswith(prefix)]
+              if len(digests) != 1: raise SystemExit(f'Expected one immutable {component} digest')
+              manifest['images'][component] = digests[0]
+          report = json.loads((root / 'production-image-report.json').read_text())
+          if report.get('passed') is not True or report.get('revision') != manifest['revision']: raise SystemExit('Test evidence does not match candidate')
+          manifest['browserVersion'] = report['browserVersion']
+          (root / 'steel-release.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: steel-image-evidence-${{ github.sha }}
+          path: image-evidence/
+          if-no-files-found: error
+          retention-days: 90

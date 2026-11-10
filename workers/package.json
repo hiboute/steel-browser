@@ -1,0 +1,9 @@
+{
+  "name": "@steel-browser/worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.23.4" },
+  "scripts": { "start": "node worker.mjs", "test": "node --test *.test.mjs", "install:browsers": "playwright install chromium firefox webkit" },
+  "dependencies": { "playwright": "1.62.0" }
+}

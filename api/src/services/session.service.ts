@@ -36,6 +36,12 @@ export type Session = SessionDetails & {
 export const BROWSER_PROFILE_NAME = /^[a-zA-Z0-9._-]{1,64}$/;
 /** steel-fingerprint.json in a saved browser's dir: its fingerprint, reused on every start. */
 export const PROFILE_FINGERPRINT_FILE = "steel-fingerprint.json";
+/**
+ * Cookies of a saved browser, read over CDP when it is released. Chrome writes
+ * its cookie database only every ~30 s and not on close, so a login made just
+ * before Release would otherwise be lost; they are put back on the next start.
+ */
+export const PROFILE_COOKIES_FILE = "steel-cookies.json";
 
 /** Where saved browsers (persistent Chrome profiles) live, one directory per name. */
 export function browserProfilesDir(): string {
@@ -108,6 +114,21 @@ export class SessionService {
   }
 
   /** The saved browser a session holds, if any. */
+  private async saveProfileCookies(sessionId: string, cdp: CDPService): Promise<void> {
+    const name = this.profileOf(sessionId);
+    if (name === undefined) return;
+    try {
+      const cookies = await cdp.getCookies();
+      await writeFile(
+        path.join(browserProfilesDir(), name, PROFILE_COOKIES_FILE),
+        JSON.stringify(cookies),
+        { mode: 0o600 },
+      );
+    } catch (err) {
+      this.logger.warn({ err }, `[SessionService] Could not save the cookies of ${name}`);
+    }
+  }
+
   public profileOf(sessionId: string): string | undefined {
     for (const [name, holder] of this.profileLocks) if (holder === sessionId) return name;
     return undefined;
@@ -274,7 +295,6 @@ export class SessionService {
     const {
       proxyUrl,
       userAgent,
-      sessionContext,
       extensions,
       logSinkUrl,
       dimensions,
@@ -292,6 +312,7 @@ export class SessionService {
       captureWorkerNetwork,
       caCertificates,
     } = options;
+    let sessionContext = options.sessionContext;
 
     const sessionId = options.sessionId || uuidv4();
     if (this.sessions.has(sessionId)) {
@@ -377,6 +398,12 @@ export class SessionService {
         // the only claim on this profile, so it is stale.
         for (const lock of ["SingletonLock", "SingletonSocket", "SingletonCookie"]) {
           await rm(path.join(userDataDir, lock), { force: true }).catch(() => undefined);
+        }
+        if (!sessionContext?.cookies?.length) {
+          const cookies = await readFile(path.join(userDataDir, PROFILE_COOKIES_FILE), "utf8")
+            .then((raw) => JSON.parse(raw) as CookieData[])
+            .catch(() => undefined);
+          if (cookies?.length) sessionContext = { ...(sessionContext ?? {}), cookies };
         }
         // Same device every time: reuse the fingerprint this browser first got.
         if (!fingerprint && !skipFingerprintInjection) {
@@ -523,6 +550,7 @@ export class SessionService {
         this.seleniumService.close();
         await this.primaryCdp.launch();
       } else {
+        await this.saveProfileCookies(session.id, session.cdpService);
         await session.cdpService.endSession();
       }
     } finally {

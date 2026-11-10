@@ -73,7 +73,14 @@ export class TimelineService {
       .then(async () => {
         const entries = await this.deps.store.readLines<TimelineEntry>(filename);
         const entry: TimelineEntry = {
-          ...input,
+          ...redactKnownSecrets(input),
+          ...(isSensitiveSession(id)
+            ? {
+                url: undefined,
+                title: undefined,
+                error: input.error ? "[private capture]" : undefined,
+              }
+            : {}),
           args: isSensitiveSession(id)
             ? { redacted: true }
             : redactKnownSecrets(redactArguments(input.args)),

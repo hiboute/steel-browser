@@ -130,7 +130,9 @@ export default async function extrasRoutes(server: FastifyInstance) {
               title: result.title,
               text: JSON.stringify(sanitized(result.data)),
               kind: "extract",
-              href: input.sessionId ? `/sessions/${input.sessionId}` : "/automation",
+              href: input.sessionId
+                ? `/?session=${encodeURIComponent(input.sessionId)}&view=data`
+                : "/?view=automation",
               expiresAt: record.expiresAt,
             });
             return { ...result, extractionId: record.id };

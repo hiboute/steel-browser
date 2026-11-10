@@ -6,7 +6,7 @@ import {
   randomUUID,
   scrypt as scryptCallback,
 } from "node:crypto";
-import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { z } from "zod";
@@ -168,8 +168,27 @@ export class WorkspaceBackup {
     };
     for (const scope of scopes) {
       const location = path.resolve(this.roots[scope]);
-      if (scope === "warm") await walk(scope, path.dirname(location), "", path.basename(location));
-      else await walk(scope, location);
+      if (["warm", "workflows"].includes(scope)) {
+        if (
+          !(await lstat(location).catch((error) => {
+            if (error.code === "ENOENT") return null;
+            throw error;
+          }))
+        ) {
+          const empty = Buffer.from(
+            JSON.stringify(
+              scope === "warm" ? [] : { schemaVersion: 1, procedures: {}, schedules: {} },
+            ),
+          );
+          files.push({
+            scope,
+            path: path.basename(location),
+            data: empty.toString("base64"),
+            sha256: createHash("sha256").update(empty).digest("hex"),
+          });
+          bytes += empty.length;
+        } else await walk(scope, path.dirname(location), "", path.basename(location));
+      } else await walk(scope, location);
     }
     const manifest: ArchiveManifest = {
       version: 1,
@@ -320,9 +339,12 @@ export class WorkspaceBackup {
   private async disableRestoredAutomation(scope: string, prepared: string) {
     if (!["workflows", "watchers", "warm"].includes(scope)) return;
     const key = process.env.STEEL_DATA_KEY || process.env.COOKIE_LIBRARY_KEY;
-    const store = new PlatformStore(scope === "warm" ? path.dirname(prepared) : prepared, key);
+    const store = new PlatformStore(
+      ["warm", "workflows"].includes(scope) ? path.dirname(prepared) : prepared,
+      key,
+    );
     if (scope === "workflows") {
-      const manifest = await store.read<Record<string, any>>("manifest.json");
+      const manifest = await store.read<Record<string, any>>(path.basename(prepared));
       if (!manifest) return;
       if (
         manifest.schemaVersion !== 1 ||
@@ -337,7 +359,7 @@ export class WorkspaceBackup {
         schedule.enabled = false;
         delete schedule.webhookHash;
       }
-      await store.write("manifest.json", manifest);
+      await store.write(path.basename(prepared), manifest);
     } else if (scope === "warm") {
       const basename = path.basename(prepared);
       const warm = await store.read<Record<string, unknown>[]>(basename);
@@ -358,6 +380,28 @@ export class WorkspaceBackup {
             state: { ...record.state, running: false },
           });
       }
+    }
+  }
+  private async writeJournal(root: string, entries: unknown) {
+    const target = path.join(root, "activation-journal.json");
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    const file = await open(temporary, "wx", 0o600);
+    try {
+      await file.writeFile(JSON.stringify(entries));
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    try {
+      await rename(temporary, target);
+      const directory = await open(root, "r");
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    } finally {
+      await rm(temporary, { force: true });
     }
   }
   /** Recover an interrupted swap, or deliberately roll back a completed activation. */
@@ -444,7 +488,8 @@ export class WorkspaceBackup {
         const exists = await lstat(target).catch(() => null);
         if (
           exists?.isSymbolicLink() ||
-          (exists && !(scope === "warm" ? exists.isFile() : exists.isDirectory()))
+          (exists &&
+            !(["warm", "workflows"].includes(scope) ? exists.isFile() : exists.isDirectory()))
         )
           throw new DataError(
             "unsafe_target",
@@ -453,7 +498,7 @@ export class WorkspaceBackup {
         if (
           manifest.conflict === "reject" &&
           exists &&
-          (scope === "warm" ? exists.size > 0 : (await readdir(target)).length)
+          (["warm", "workflows"].includes(scope) ? exists.size > 0 : (await readdir(target)).length)
         )
           throw new DataError(
             "restore_conflict",
@@ -472,8 +517,9 @@ export class WorkspaceBackup {
             "A prior rollback directory exists; inspect it before retrying",
             409,
           );
-        const source =
-          scope === "warm" ? path.join(root, scope, path.basename(target)) : path.join(root, scope);
+        const source = ["warm", "workflows"].includes(scope)
+          ? path.join(root, scope, path.basename(target))
+          : path.join(root, scope);
         await cp(source, prepared, {
           recursive: true,
           errorOnExist: true,
@@ -494,15 +540,11 @@ export class WorkspaceBackup {
         const hadOriginal = !!(await lstat(target).catch(() => null));
         const item = { target, backup, prepared, hadOriginal, installed: false };
         moved.push(item);
-        await writeFile(path.join(root, "activation-journal.json"), JSON.stringify(moved), {
-          mode: 0o600,
-        });
+        await this.writeJournal(root, moved);
         if (hadOriginal) await rename(target, backup);
         await rename(prepared, target);
         item.installed = true;
-        await writeFile(path.join(root, "activation-journal.json"), JSON.stringify(moved), {
-          mode: 0o600,
-        });
+        await this.writeJournal(root, moved);
       }
       // Retain old directories for a deliberate rollback; never erase the only prior copy.
       await writeFile(

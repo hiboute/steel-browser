@@ -164,7 +164,10 @@ describe("encrypted workspace recovery", () => {
       schedules: { daily: { enabled: true, webhookHash: "prior-hash" } },
     });
     const exporter = new WorkspaceBackup(
-      { warm: path.join(source, "warm.json"), workflows: path.join(source, "workflows") },
+      {
+        warm: path.join(source, "warm.json"),
+        workflows: path.join(source, "workflows", "manifest.json"),
+      },
       path.join(root, "stages"),
     );
     const archive = await exporter.export(
@@ -173,7 +176,10 @@ describe("encrypted workspace recovery", () => {
       "separate export passphrase",
     );
     const importer = new WorkspaceBackup(
-      { warm: path.join(target, "warm.json"), workflows: path.join(target, "workflows") },
+      {
+        warm: path.join(target, "warm.json"),
+        workflows: path.join(target, "workflows", "manifest.json"),
+      },
       path.join(root, "stages"),
     );
     const stage = await importer.stage(operator, {

@@ -128,7 +128,7 @@ const plugin: FastifyPluginAsync = async (server) => {
       title: record.name,
       text: snapshot.text,
       kind: "snapshot",
-      href: "/automation",
+      href: "/?view=automation",
       expiresAt: snapshot.expiresAt,
     });
     return { snapshotId: snapshot.id, text: snapshot.text, diff: comparison };
@@ -249,7 +249,7 @@ const plugin: FastifyPluginAsync = async (server) => {
             title: record.name || record.url,
             text: record.text,
             kind: "snapshot",
-            href: `/sessions/${id}`,
+            href: `/?session=${encodeURIComponent(id)}&view=data`,
             expiresAt: record.expiresAt,
           });
           return record;
@@ -361,7 +361,7 @@ const plugin: FastifyPluginAsync = async (server) => {
               title: record.name,
               text: record.text,
               kind: "artifact",
-              href: `/sessions/${id}`,
+              href: `/?session=${encodeURIComponent(id)}&view=data`,
               expiresAt: record.expiresAt,
             });
             return record;

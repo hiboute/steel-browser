@@ -7,7 +7,7 @@ export function workspaceRoots() {
   return {
     profiles: path.resolve(process.env.BROWSER_PROFILES_DIR || "browser-profiles"),
     logins: path.resolve(process.env.COOKIE_LIBRARY_DIR || "cookie-library"),
-    workflows: path.join(data, "workflows"),
+    workflows: path.join(data, "workflows", "manifest.json"),
     watchers: path.join(data, "watchers"),
     warm: path.join(data, "warm.json"),
     identities: path.join(data, "identity"),

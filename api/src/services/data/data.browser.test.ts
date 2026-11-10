@@ -78,18 +78,18 @@ it.skipIf(!chrome)(
             clients: [actor.id],
           },
         }),
-        async () => "secret-unseen-8392",
+        async () => "secret-&-<unseen>-8392",
       );
       expect(
         await vault.fill(page, actor, { reference: "password", selector: "#password" }),
       ).toMatchObject({ status: "filled", submitted: false });
       expect(await page.$eval("#password", (element) => (element as HTMLInputElement).value)).toBe(
-        "secret-unseen-8392",
+        "secret-&-<unseen>-8392",
       );
       await page.$eval("#echo", (element) => {
         element.textContent = (document.querySelector("#password") as HTMLInputElement).value;
       });
-      expect(JSON.stringify(await captureSource(page))).not.toContain("secret-unseen-8392");
+      expect(JSON.stringify(await captureSource(page))).not.toContain("secret-&-<unseen>-8392");
       const extraction = new ExtractService(
         {
           getSession: () => ({
@@ -106,7 +106,7 @@ it.skipIf(!chrome)(
           maxChars: 10_000,
         },
         async (_url, init) => {
-          expect(String(init?.body)).not.toContain("secret-unseen-8392");
+          expect(String(init?.body)).not.toContain("secret-&-<unseen>-8392");
           return new Response(
             JSON.stringify({
               choices: [

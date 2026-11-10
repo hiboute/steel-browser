@@ -121,8 +121,9 @@ destinations and caller-selected absolute paths are not accepted.
 ## Encrypted workspace recovery
 
 `GET /v1/workspace/scopes` lists available scopes: profiles, logins, workflows,
-watchers, warm and identities. Workflows includes its encrypted manifest and
-runtime records; it is not a definitions-only procedure export. Identities
+watchers, warm and identities. Workflows includes its encrypted manifest of procedure versions and schedules.
+Durable runs, review approvals, receipts and replay history are excluded; restoring
+configuration does not restore or automatically resume prior tasks. Identities
 includes versioned profiles, site profiles, histories and continuity metadata,
 excluding ephemeral diagnostic reports.
 

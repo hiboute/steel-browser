@@ -1,5 +1,5 @@
 import type { Page } from "puppeteer-core";
-import { hideSecrets } from "../commands/secrets.js";
+import { hideSecrets, htmlForms } from "../commands/secrets.js";
 
 import { redactSecretText } from "./privacy.js";
 
@@ -188,7 +188,8 @@ export async function captureSource(
     },
     { limit: maxChars, options },
   );
-  const mask = (value: string) => redactSecretText(hideSecrets(value || "", raw.secrets || [], 1));
+  const mask = (value: string) =>
+    redactSecretText(hideSecrets(value || "", htmlForms(raw.secrets || []), 1));
   return {
     url: safeSourceUrl(raw.url),
     title: mask(raw.title),

@@ -118,9 +118,10 @@ export class IdentityCollector {
     this.origin = undefined;
     this.starting = undefined;
   }
-  async open(browser: Browser): Promise<Page> {
+  async open(browser: Browser, preparePage?: (page: Page) => Promise<void>): Promise<Page> {
     const page = await browser.newPage();
     try {
+      await preparePage?.(page);
       await page.goto(`${await this.start()}fixture`, { waitUntil: "load", timeout: 7000 });
       return page;
     } catch (e) {
@@ -128,7 +129,7 @@ export class IdentityCollector {
       throw e;
     }
   }
-  async headers(browser: Browser) {
+  async headers(browser: Browser, preparePage?: (page: Page) => Promise<void>) {
     let page: Page | undefined;
     try {
       let value: Record<string, unknown>;
@@ -138,10 +139,11 @@ export class IdentityCollector {
           throw new Error("Invalid collector origin");
         u.searchParams.set("nonce", randomBytes(16).toString("hex"));
         page = await browser.newPage();
+        await preparePage?.(page);
         await page.goto(u.href, { waitUntil: "load", timeout: 7000 });
         value = await page.evaluate(() => JSON.parse(document.body.innerText).headers);
       } else {
-        page = await this.open(browser);
+        page = await this.open(browser, preparePage);
         value = await page.evaluate(async () => {
           const r = await fetch("headers");
           return await r.json();

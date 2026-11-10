@@ -90,6 +90,7 @@ describe.skipIf(!chrome)("owned real Chromium identity fixtures", () => {
           userAgent: options.userAgent,
           cdpService: {
             getBrowserInstance: () => wrapped,
+            waitForPageSetup: async () => {}, // wrapped.newPage already awaits configuration
             getBrowserVersion: () => browser!.version(),
             getAllPages: async () => [active],
             getCompatibilityState: () => host.getCompatibilityState(),

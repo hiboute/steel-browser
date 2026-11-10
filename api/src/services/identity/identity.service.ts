@@ -694,7 +694,9 @@ export class IdentityService {
     } catch {
       observed = { status: "unavailable", reason: "Active page could not be observed" };
     }
-    const collector = await this.collector.headers(browser);
+    const collector = await this.collector.headers(browser, (page) =>
+      bounded(session.cdpService.waitForPageSetup(page), 10_000),
+    );
     const requested = {
       identityProfile: options?.identityProfile,
       compatibilityMode: options?.compatibilityMode ?? "legacy",
@@ -744,7 +746,9 @@ export class IdentityService {
         throw new IdentityError("browser_unavailable", "Session has no live browser", 409);
       let checks: Check[];
       try {
-        page = await this.collector.open(browser);
+        page = await this.collector.open(browser, (page) =>
+          bounded(session.cdpService.waitForPageSetup(page), 10_000),
+        );
         checks = await bounded(fixtureChecks(page), 15_000);
       } catch {
         checks = [

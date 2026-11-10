@@ -29,6 +29,15 @@ can use its installed Chrome without downloading an emulated engine. State and
 worker credentials are mode 0600; the grant is exchanged for a scoped worker token.
 Do not point the state directory at an existing personal browser profile.
 
+For a logged-in macOS desktop, stage the approved source and pinned dependencies,
+then pass `{coordinator, pairingToken}` as JSON on stdin to
+`node workers/install-macos.mjs`. The installer exchanges the one-use token,
+persists mode-0600 worker credentials and installs only the current user's
+`fr.robiche.steel-worker` LaunchAgent. Its launchd environment contains no token.
+Later source updates can run the installer with only the same coordinator;
+existing credentials and dedicated profiles remain in place. This installs a
+capacity-one native Chrome worker and does not change Safari settings.
+
 Create `{engine,location?,workerId?,egressPolicy?,checkpointId?,headless?}` at
 `POST /v1/fleet/sessions`. The result contains a session and a durable launch
 command. Poll its command result, then acquire control using
@@ -111,7 +120,8 @@ collectors and unobserved probes remain explicit in the report.
 
 `build-docker.yml` builds the API, UI and worker candidates once. It tests the
 installed API Chromium, the HTTP/2 empty-reason-phrase regression, real identity
-and compatibility fixtures, all three Playwright worker engines, the strict
+and compatibility fixtures, a durable reviewed procedure with agent self-approval
+denial and a verified screenshot receipt, all three Playwright worker engines, the strict
 network boundary and built UI assets. Only those tested image IDs are published.
 The release artifact records source revision, workflow run, actual Chromium
 version and immutable digests. Homelab's pin workflow requires a successful run
@@ -119,6 +129,8 @@ for current main and validates that manifest before changing deployment pins.
 
 Hardware acceptance is separate from code availability. A dedicated native
 Chrome profile on the existing Mac mini passed input, screenshot and actual
-Apple M4 graphics checks. Safari WebDriver currently requires the owner's
-approval to enable Safari's **Allow remote automation** setting. No real Android
+Apple M4 graphics checks. The owner approved Safari's **Allow remote automation**
+setting, but macOS requires unavailable local administrator authentication; the
+owner explicitly skipped Safari validation. The adapter remains unvalidated on
+that hardware. No real Android
 device is available, so Android physical-device acceptance remains pending.

@@ -25,7 +25,7 @@ it("data HTTP routes enforce principals, validate input, and never expose anothe
             throw new DataError("forbidden", "Session access denied", 403);
           },
           assertRead: () => {},
-        });
+        } as unknown as typeof app.access);
         app.decorate("sessionService", {
           getSession: () => undefined,
           listSessions: () => [],

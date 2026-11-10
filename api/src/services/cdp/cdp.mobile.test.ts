@@ -194,7 +194,7 @@ describe("CDPService mobile device emulation", () => {
     ]);
   });
 
-  test("leaves sessions that skip fingerprint injection on short-lived emulation", async () => {
+  test("leaves native sessions free of fingerprint emulation overrides", async () => {
     const service = serviceWith(mobileFingerprint);
     Object.assign((service as any).launchConfig, { skipFingerprintInjection: true });
     const send = vi.fn().mockResolvedValue({});
@@ -204,7 +204,8 @@ describe("CDPService mobile device emulation", () => {
 
     const { page, detach } = fakePage();
     await (service as any).applyDeviceMetricsOverride(page);
-    expect(detach).toHaveBeenCalledOnce();
+    expect(page.createCDPSession).not.toHaveBeenCalled();
+    expect(detach).not.toHaveBeenCalled();
   });
 });
 

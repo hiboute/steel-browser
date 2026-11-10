@@ -1,4 +1,12 @@
 import nextPlatformPlugin from "./services/control/next-platform.plugin.js";
+import identityPlugin from "./services/identity/identity.plugin.js";
+import fleetPlugin from "./services/fleet/fleet.plugin.js";
+import dataPlugin from "./services/data/data.plugin.js";
+import workflowsPlugin from "./services/workflows/workflows.plugin.js";
+import workbenchPlugin from "./services/workbench/workbench.plugin.js";
+import workspaceIndexPlugin from "./services/workspace-index.plugin.js";
+import { isSensitiveSession } from "./services/data/privacy.js";
+import { WorkflowError } from "./services/workflows/workflows.types.js";
 import extrasPlugin from "./services/extras.plugin.js";
 import platformPlugin from "./services/platform/platform.plugin.js";
 import cookieHealthPlugin from "./services/cookie-health.service.js";
@@ -90,8 +98,10 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   await fastify.register(cookieLibraryPlugin);
   await fastify.register(platformPlugin);
   await fastify.register(nextPlatformPlugin);
-  await fastify.register(cookieHealthPlugin);
   await fastify.register(agentFeaturesPlugin);
+  await fastify.register(identityPlugin);
+  await fastify.register(cookieHealthPlugin);
+  await fastify.register(fleetPlugin);
   fastify.sessionService.setIdleExemption(
     (id) => fastify.handoffs.isWaiting(id) || fastify.sessionCommands.busy(id),
   );
@@ -128,6 +138,39 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   }));
 
   await fastify.register(extrasPlugin);
+  await fastify.register(dataPlugin);
+  await fastify.register(workflowsPlugin, {
+    evidenceAllowed: (id) => !isSensitiveSession(id),
+    isSensitiveSession,
+    vaultFill: async (context, input) => {
+      const id = context.run.sessionId;
+      if (!id)
+        throw new WorkflowError(
+          "session_required",
+          "A live browser is required for vault fill",
+          409,
+        );
+      return fastify.dataVaultFill(id, context.actor, input, {
+        signal: context.signal,
+        assertControl: () => fastify.control.assert(id, context.actor, context.controlToken),
+      });
+    },
+    verifyAttachment: async (context, attachment) => {
+      const record = await fastify.artifactProcessing.verify(
+        attachment.artifactId,
+        context.actor,
+        attachment.sha256,
+      );
+      if (record.sessionId !== context.run.sessionId)
+        throw new WorkflowError(
+          "attachment_session_mismatch",
+          "The reviewed attachment must belong to this browser",
+          409,
+        );
+    },
+  });
+  await fastify.register(workbenchPlugin);
+  await fastify.register(workspaceIndexPlugin);
 
   // Routes
   const commands = await import("./modules/commands/commands.routes.js");

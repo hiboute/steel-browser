@@ -368,3 +368,82 @@ describe("public proxy labels", () => {
     expect(redactProxyUrl()).toBe("");
   });
 });
+
+describe("session expiry", () => {
+  it("touch extends idle expiry but never the hard lifetime", async () => {
+    const { service } = createService();
+    const session = service.getSession("s1")!;
+    const start = Date.now() - 5000;
+    Object.assign(session, {
+      createdAt: new Date(start).toISOString(),
+      lastActivityAt: new Date(start).toISOString(),
+      timeout: 10_000,
+      idleTimeout: 6000,
+      onExpire: "release",
+    });
+    service.touch("s1", "test");
+    expect(Date.parse(session.expiresAt!)).toBe(start + 10_000);
+    await service.reapExpiredSessions();
+    expect(service.getSession("s1")).toBe(session);
+    session.createdAt = new Date(Date.now() - 10_001).toISOString();
+    await service.reapExpiredSessions();
+    expect(service.getSession("s1")).toBeUndefined();
+    expect(service.pastSessions[0].releaseReason).toBe("timeout");
+  });
+
+  it("expires abandoned sessions but not keepAlive or held work", async () => {
+    const { service, pool } = createService({ size: 3 });
+    addLiveSession(service, pool, "s2");
+    addLiveSession(service, pool, "s3");
+    for (const s of service.listSessions())
+      Object.assign(s, {
+        timeout: 0,
+        idleTimeout: 1,
+        onExpire: "release",
+        lastActivityAt: new Date(Date.now() - 1000).toISOString(),
+      });
+    service.getSession("s2")!.keepAlive = true;
+    const release = service.holdActivity("s3");
+    service.getSession("s3")!.lastActivityAt = new Date(Date.now() - 1000).toISOString();
+    await service.reapExpiredSessions();
+    expect(service.listSessions().map((s) => s.id)).toEqual(["s2", "s3"]);
+    expect(service.pastSessions[0].releaseReason).toBe("idle");
+    release();
+    release();
+    expect(Date.parse(service.getSession("s3")!.lastActivityAt!)).toBeGreaterThan(Date.now() - 100);
+    await service.endAllSessions();
+  });
+
+  it("shares overlapping reaper passes and holds the slot until teardown finishes", async () => {
+    const { service, pool, cdpService } = createService();
+    Object.assign(service.getSession("s1")!, {
+      timeout: 1,
+      onExpire: "release",
+      createdAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    const gate = Promise.withResolvers<void>();
+    cdpService.endSession.mockReturnValue(gate.promise);
+    const one = service.reapExpiredSessions();
+    const two = service.reapExpiredSessions();
+    expect(one).toBe(two);
+    expect(pool.acquire("new")).toBeNull();
+    await vi.waitFor(() => expect(cdpService.endSession).toHaveBeenCalledOnce());
+    gate.resolve();
+    await one;
+    expect(pool.acquire("new")?.sessionId).toBe("new");
+  });
+
+  it("honors explicit zero values instead of applying environment timeouts", async () => {
+    const { service } = createService();
+    await service.endSession("s1");
+    const session = await service.startSession({
+      sessionId: "no-expiry",
+      credentials: {},
+      timeout: 0,
+      idleTimeout: 0,
+      keepAlive: true,
+    });
+    expect(session).toMatchObject({ timeout: 0, idleTimeout: 0, keepAlive: true, expiresAt: null });
+    await service.endSession(session.id);
+  });
+});

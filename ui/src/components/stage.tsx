@@ -114,19 +114,41 @@ export function Stage({
   session: SessionDetails;
   devtoolsOpen: boolean;
 }) {
-  const docked = devtoolsOpen && Boolean(session.debugUrl) && isPrimarySession(session);
+  const running = ["live", "idle"].includes(session.status);
+  const docked = running && devtoolsOpen && Boolean(session.debugUrl) && isPrimarySession(session);
 
   return (
     <section className="stage" data-devtools={docked ? "open" : "closed"} aria-label="Live view">
-      {session.debugUrl ? (
+      {running && session.debugUrl ? (
         <LiveFrame url={session.debugUrl} />
       ) : (
         <div className="player">
-          <Notice title="No live view">
-            {session.isSelenium
-              ? "Selenium sessions don't stream a live view."
-              : "This session doesn't have a live view."}
-          </Notice>
+          {session.status === "parked" ? (
+            <div className="parked-preview">
+              <img
+                src={apiUrl(`/v1/sessions/${session.id}/thumbnail`)}
+                alt="Browser when parked"
+                onError={(e) => {
+                  e.currentTarget.hidden = true;
+                }}
+              />
+              <h2>Saved for later</h2>
+              <p>This browser's state is parked. Resume it to continue from where you left off.</p>
+              {session.tabs?.map((tab, i) => (
+                <p key={i} className="field-hint">
+                  {tab.title || tab.url}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <Notice title={session.status === "released" ? "Session released" : "No live view"}>
+              {session.status === "released"
+                ? "This browser is closed. Its activity, downloads, and recording are still available below."
+                : session.isSelenium
+                ? "Selenium sessions don't stream a live view."
+                : "This session doesn't have a live view."}
+            </Notice>
+          )}
         </div>
       )}
       {docked && <DevTools session={session} />}

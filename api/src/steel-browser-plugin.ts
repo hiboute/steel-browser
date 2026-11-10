@@ -1,3 +1,7 @@
+import extrasPlugin from "./services/extras.plugin.js";
+import platformPlugin from "./services/platform/platform.plugin.js";
+import cookieHealthPlugin from "./services/cookie-health.service.js";
+import agentFeaturesPlugin from "./services/handoff/agent-features.plugin.js";
 import fastifyView from "@fastify/view";
 import cookieLibraryPlugin from "./plugins/cookie-library.js";
 import cookieLibraryRoutes from "./modules/cookie-library/cookie-library.routes.js";
@@ -83,6 +87,47 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   await fastify.register(customBodyParser);
   await fastify.register(browserSessionPlugin);
   await fastify.register(cookieLibraryPlugin);
+  await fastify.register(platformPlugin);
+  await fastify.register(cookieHealthPlugin);
+  await fastify.register(agentFeaturesPlugin);
+  fastify.sessionService.setIdleExemption(
+    (id) =>
+      fastify.handoffs.isWaiting(id) ||
+      (!!fastify.commandEngine?.busy() && fastify.browserPool.primary.sessionId === id),
+  );
+  fastify.sessionService.setParkGuard((id) => fastify.handoffs.isWaiting(id));
+  fastify.sessionService.setEgressResolver((name) => fastify.egress.resolve(name));
+  fastify.browserPool.setAdmissionGuard(() => fastify.memory.hasCapacity());
+  fastify.sessionService.setPoolDetails(() => ({
+    memory: fastify.memory.snapshot(
+      fastify.browserPool.allSlots.flatMap((s) =>
+        s.cdpService.getPid() ? [s.cdpService.getPid()!] : [],
+      ),
+    ),
+    background: { running: fastify.jobs.running, max: fastify.jobs.max },
+    limits: {
+      timeout: env.SESSION_TIMEOUT_MS,
+      idleTimeout: env.SESSION_IDLE_TIMEOUT_MS,
+      queueTimeout: env.SESSION_QUEUE_TIMEOUT_MS,
+      queueMax: env.SESSION_QUEUE_MAX_MS,
+      parkedMax: env.PARKED_MAX,
+      parkedTtl: env.PARKED_TTL_MS,
+    },
+    slotStats: Object.fromEntries(
+      fastify.browserPool.allSlots.map((s) => [
+        s.index,
+        {
+          pages: s.cdpService.getPageCount(),
+          pid: s.cdpService.getPid() ?? null,
+          rssBytes: s.cdpService.getPid()
+            ? fastify.memory.processTreeRss(s.cdpService.getPid()!)
+            : 0,
+        },
+      ]),
+    ),
+  }));
+
+  await fastify.register(extrasPlugin);
 
   // Routes
   const commands = env.ENABLE_COMMANDS_API

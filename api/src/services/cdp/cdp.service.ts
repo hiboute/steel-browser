@@ -105,6 +105,7 @@ export class CDPService extends EventEmitter {
   private defaultLaunchConfig: BrowserLauncherOptions;
   private currentSessionConfig: BrowserLauncherOptions | null;
   private shuttingDown: boolean;
+  private shutdownPromise?: Promise<void>;
   private defaultTimezone: string;
   private pluginManager: PluginManager;
   private trackedOrigins: Set<string> = new Set<string>();
@@ -611,54 +612,89 @@ export class CDPService extends EventEmitter {
 
   @traceable
   public async shutdown(reason: ShutdownReason): Promise<void> {
-    this.shuttingDown = true;
-    this.logger.info(`[CDPService] Shutting down and cleaning up resources (reason: ${reason})`);
-    this.chromeSessionService.invalidate();
-
+    if (this.shutdownPromise) return this.shutdownPromise;
+    const task = this.shutdownBrowser(reason);
+    this.shutdownPromise = task;
     try {
-      if (this.browserInstance) {
-        await this.pluginManager.onBrowserClose(this.browserInstance);
-      }
+      await task;
+    } finally {
+      this.shutdownPromise = undefined;
+    }
+  }
 
+  private async shutdownBrowser(reason: ShutdownReason): Promise<void> {
+    this.shuttingDown = true;
+    this.chromeSessionService.invalidate();
+    this.logger.info(`[CDPService] Shutting down browser (reason: ${reason})`);
+    try {
+      if (this.browserInstance) await this.pluginManager.onBrowserClose(this.browserInstance);
       await this.pluginManager.onShutdown(reason);
-
+      await this.closeBrowserProcess();
+      // Puppeteer uses browser listeners to finish graceful shutdown and flush profile data.
       this.removeAllHandlers();
-      await this.browserInstance?.close();
-      await this.browserInstance?.process()?.kill();
       await this.shutdownHook();
-
-      this.logger.info("[CDPService] Cleaning up files during shutdown");
-      try {
-        if (this.primary) await FileService.getInstance().cleanupFiles();
-        this.logger.info("[CDPService] Files cleaned successfully");
-      } catch (error) {
-        this.logger.error(`[CDPService] Error cleaning files during shutdown: ${error}`);
-      }
-
       this.fingerprintData = null;
       this.currentSessionConfig = null;
       this.browserInstance = null;
       this.wsEndpoint = null;
       this.emit("close");
-      this.shuttingDown = false;
     } catch (error) {
-      this.logger.error(`[CDPService] Error during shutdown: ${error}`);
-      // Ensure we complete the shutdown even if plugins throw errors
-      await this.browserInstance?.close();
-      await this.browserInstance?.process()?.kill();
-      await this.shutdownHook();
-
-      try {
-        if (this.primary) await FileService.getInstance().cleanupFiles();
-      } catch (cleanupError) {
-        this.logger.error(
-          `[CDPService] Error cleaning files during error recovery: ${cleanupError}`,
-        );
-      }
-
-      this.browserInstance = null;
+      this.logger.error({ err: error }, "Browser shutdown failed");
+      // Keep the instance available for the caller's explicit cleanup attempt.
+      throw error;
+    } finally {
       this.shuttingDown = false;
     }
+  }
+
+  private async closeBrowserProcess(): Promise<void> {
+    const browser = this.browserInstance;
+    if (!browser) return;
+    const child = browser.process();
+    const exited = () => !child || child.exitCode !== null || child.signalCode !== null;
+    const waitForExit = async (milliseconds: number): Promise<boolean> => {
+      if (exited()) return true;
+      return new Promise((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          child!.off("exit", done);
+          resolve(exited());
+        };
+        const timer = setTimeout(done, milliseconds);
+        child!.once("exit", done);
+        if (exited()) done();
+      });
+    };
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        browser.close(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Graceful browser close timed out")), 10_000);
+        }),
+      ]);
+    } catch (err) {
+      this.logger.warn({ err }, "Graceful browser close failed; terminating its process");
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!exited()) {
+      child!.kill("SIGTERM");
+      if (!(await waitForExit(3000))) {
+        child!.kill("SIGKILL");
+        if (!(await waitForExit(2000)))
+          throw new Error("Browser process did not exit; slot must remain unavailable");
+      }
+    }
+    if (!child && browser.connected) throw new Error("Browser is still connected after shutdown");
+  }
+
+  public getPageCount(): number {
+    return this.browserInstance?.targets().filter((target) => target.type() === "page").length ?? 0;
+  }
+
+  public getPid(): number | undefined {
+    return this.browserInstance?.process()?.pid;
   }
 
   public getBrowserProcess() {
@@ -809,7 +845,7 @@ export class CDPService extends EventEmitter {
         await executeOptional(
           this.logger,
           async () => {
-            if (this.primary) await FileService.getInstance().cleanupFiles();
+            // Session files have independent retention; never erase another session here.
             this.logger.info("[CDPService] Files cleaned successfully before launch");
           },
           (error) =>
@@ -1068,10 +1104,16 @@ export class CDPService extends EventEmitter {
 
         const finalLaunchOptions = {
           ...options,
+          handleSIGINT: false,
+          handleSIGTERM: false,
+          handleSIGHUP: false,
           defaultViewport: null,
           args: launchArgs,
           executablePath: this.chromeExecPath,
-          ignoreDefaultArgs: ["--enable-automation"],
+          ignoreDefaultArgs: [
+            "--enable-automation",
+            ...(extensionPaths.length ? ["--disable-extensions"] : []),
+          ],
           timeout: LAUNCH_TIMEOUT_MS,
           env: {
             HOME: os.userInfo().homedir,
@@ -1183,7 +1225,8 @@ export class CDPService extends EventEmitter {
         await executeBestEffort(
           this.logger,
           async () => {
-            const downloadPath = FileService.getInstance().getBaseFilesPath();
+            const downloadPath =
+              this.launchConfig?.downloadPath ?? FileService.getInstance().getBaseFilesPath();
             const cdpSession = await this.browserInstance!.target().createCDPSession();
             await cdpSession.send("Browser.setDownloadBehavior", {
               behavior: "allow",
@@ -1546,7 +1589,10 @@ export class CDPService extends EventEmitter {
   }
 
   @traceable
-  public async endSession(reason: ShutdownReason = ShutdownReason.SESSION_END): Promise<void> {
+  public async endSession(
+    reason: ShutdownReason = ShutdownReason.SESSION_END,
+    relaunchIdle = true,
+  ): Promise<void> {
     this.logger.info("Ending current session and resetting to default configuration.");
     const sessionConfig = this.currentSessionConfig!;
 
@@ -1575,7 +1621,7 @@ export class CDPService extends EventEmitter {
     }
 
     // Relaunch the idle browser (secondary pool slots stay down until reused)
-    if (this.primary) {
+    if (this.primary && relaunchIdle) {
       await this.launch(this.defaultLaunchConfig);
     }
   }

@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc",
+    "test:smoke": "node test/live-smoke.mjs",
+    "test:fixture": "node test/fixture-server.mjs",
     "generate-api": "npx --yes --prefix=/ --package=typescript@5.9.2 --package=@hey-api/openapi-ts@0.99.0 openapi-ts -i ../api/openapi/schemas.json -o src/client -p @hey-api/typescript --no-log-file && prettier --write src/client"
   },
   "dependencies": {

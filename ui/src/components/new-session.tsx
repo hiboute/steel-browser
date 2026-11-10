@@ -3,12 +3,14 @@ import {
   createSession,
   listBrowserProfiles,
   listVpnProviders,
+  type EgressProfile,
   type BrowserProfileSummary,
   type SessionDetails,
 } from "../api";
 import { CookieSetPicker } from "./cookie-library";
 import { KeyChip } from "./key-chip";
 import { Segmented } from "./segmented";
+import { useResource } from "../hooks";
 
 type Device = "desktop" | "mobile";
 
@@ -23,6 +25,8 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [opened, setOpened] = useState(0);
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => abort.current?.abort(), []);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -35,29 +39,65 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
       setError("Enter both width and height, or leave both empty.");
       return;
     }
+    if (
+      [Boolean(text("egress")), data.get("vpn") === "nordvpn", Boolean(text("proxyUrl"))].filter(
+        Boolean,
+      ).length > 1
+    ) {
+      setError("Choose one network option: a named network, NordVPN, or a proxy URL.");
+      return;
+    }
+    const labels: Record<string, string> = {};
+    for (const line of String(data.get("labels") || "")
+      .split("\n")
+      .filter((s) => s.trim())) {
+      const index = line.indexOf("=");
+      if (index <= 0) {
+        setError("Enter labels as key=value, one per line.");
+        return;
+      }
+      labels[line.slice(0, index).trim()] = line.slice(index + 1).trim();
+    }
 
     setPending(true);
     setError(null);
+    abort.current = new AbortController();
     try {
-      const session = await createSession({
-        deviceConfig: { device },
-        dimensions: width && height ? { width: Number(width), height: Number(height) } : undefined,
-        userAgent: text("userAgent"),
-        blockAds: data.get("blockAds") === "on",
-        cookieSets: data.getAll("cookieSets").map(String),
-        browserProfile: text("browserProfile"),
-        vpn:
-          data.get("vpn") === "nordvpn"
-            ? { provider: "nordvpn", country: text("vpnCountry")?.toUpperCase() }
-            : undefined,
-        proxyUrl: data.get("vpn") === "nordvpn" ? undefined : text("proxyUrl"),
-      });
+      const session = await createSession(
+        {
+          name: text("name"),
+          labels,
+          timeout: text("timeout") === undefined ? undefined : Number(text("timeout")) * 60000,
+          idleTimeout:
+            text("idleTimeout") === undefined ? undefined : Number(text("idleTimeout")) * 60000,
+          onExpire: data.get("onExpire") === "release" ? "release" : "park",
+          keepAlive: data.get("keepAlive") === "on",
+          record: data.get("record") === "on",
+          egress: text("egress"),
+          extensions: data.getAll("extensions").map(String),
+          queueTimeout: 45000,
+          deviceConfig: { device },
+          dimensions:
+            width && height ? { width: Number(width), height: Number(height) } : undefined,
+          userAgent: text("userAgent"),
+          blockAds: data.get("blockAds") === "on",
+          cookieSets: data.getAll("cookieSets").map(String),
+          browserProfile: text("browserProfile"),
+          vpn:
+            data.get("vpn") === "nordvpn"
+              ? { provider: "nordvpn", country: text("vpnCountry")?.toUpperCase() }
+              : undefined,
+          proxyUrl: data.get("vpn") === "nordvpn" ? undefined : text("proxyUrl"),
+        },
+        abort.current.signal,
+      );
       dialog.current?.close();
       form.reset();
       setDevice("desktop");
       onStarted(session);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (!abort.current.signal.aborted)
+        setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setPending(false);
     }
@@ -85,7 +125,10 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
         className="dialog"
         aria-labelledby="new-session-title"
         aria-describedby="new-session-description"
-        onClose={() => setError(null)}
+        onClose={() => {
+          abort.current?.abort();
+          setError(null);
+        }}
       >
         <form className="dialog-form" onSubmit={(event) => void submit(event)}>
           <div className="dialog-head">
@@ -97,6 +140,57 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
             </p>
           </div>
           <div className="dialog-body">
+            <label className="field">
+              Name
+              <input
+                className="input"
+                name="name"
+                maxLength={80}
+                placeholder="What is this browser for?"
+              />
+            </label>
+            <div className="form-grid">
+              <label className="field">
+                Idle limit (minutes)
+                <input
+                  className="input"
+                  name="idleTimeout"
+                  type="number"
+                  min={0}
+                  step="any"
+                  placeholder="Server default"
+                />
+              </label>
+              <label className="field">
+                Lifetime (minutes)
+                <input
+                  className="input"
+                  name="timeout"
+                  type="number"
+                  min={0}
+                  step="any"
+                  placeholder="Server default"
+                />
+              </label>
+            </div>
+            <label className="field">
+              On expiry
+              <select className="input" name="onExpire">
+                <option value="park">Park and keep state</option>
+                <option value="release">Release and discard state</option>
+              </select>
+            </label>
+            <div className="form-grid">
+              <label className="check-row">
+                <input name="keepAlive" type="checkbox" />
+                Keep alive when idle
+              </label>
+              <label className="check-row">
+                <input name="record" type="checkbox" />
+                Record for replay
+              </label>
+            </div>
+            <SessionExtras key={`extra${opened}`} />
             <div className="field">
               <span>Device</span>
               <Segmented label="Device" value={device} onChange={setDevice} options={devices} />
@@ -165,6 +259,18 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
             <SavedBrowserField key={`b${opened}`} />
             <VpnField key={`v${opened}`} />
             <CookieSetPicker key={opened} />
+            <details>
+              <summary>Labels</summary>
+              <label className="field">
+                One key=value per line
+                <textarea className="input" name="labels" rows={3} placeholder="project=research" />
+              </label>
+            </details>
+            {pending && (
+              <p role="status" className="field-hint">
+                Waiting for a free browser, then starting your session. You can cancel this request.
+              </p>
+            )}
             {error && (
               <p className="dialog-error" role="alert">
                 {error}
@@ -172,12 +278,7 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
             )}
           </div>
           <div className="dialog-foot">
-            <button
-              type="button"
-              className="button"
-              disabled={pending}
-              onClick={() => dialog.current?.close()}
-            >
+            <button type="button" className="button" onClick={() => dialog.current?.close()}>
               Cancel
             </button>
             <button type="submit" className="button" data-variant="primary" disabled={pending}>
@@ -186,6 +287,40 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
           </div>
         </form>
       </dialog>
+    </>
+  );
+}
+
+function SessionExtras() {
+  const { data: networks } = useResource<{ profiles: EgressProfile[] }>("/v1/egress", 0);
+  const { data: extensions } = useResource<{ extensions: { name: string; title: string }[] }>(
+    "/v1/extensions",
+    0,
+  );
+  return (
+    <>
+      <label className="field">
+        Network
+        <select name="egress" className="input">
+          <option value="">Server or saved-login default</option>
+          {networks?.profiles.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.label || p.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {Boolean(extensions?.extensions.length) && (
+        <fieldset className="field cookie-picker">
+          <legend>Extensions</legend>
+          {extensions?.extensions.map((e) => (
+            <label className="cookie-option" key={e.name}>
+              <input type="checkbox" name="extensions" value={e.name} />
+              {e.title}
+            </label>
+          ))}
+        </fieldset>
+      )}
     </>
   );
 }
@@ -238,7 +373,9 @@ function VpnField() {
   useEffect(() => {
     const controller = new AbortController();
     listVpnProviders(controller.signal)
-      .then(({ providers }) => setAvailable(providers.some((p) => p.id === "nordvpn" && p.configured)))
+      .then(({ providers }) =>
+        setAvailable(providers.some((p) => p.id === "nordvpn" && p.configured)),
+      )
       .catch(() => undefined);
     return () => controller.abort();
   }, []);
@@ -248,7 +385,9 @@ function VpnField() {
       <label className="switch-row">
         <span className="switch-text">
           <span>NordVPN</span>
-          <span className="field-hint">Browse through a NordVPN server (replaces the proxy URL).</span>
+          <span className="field-hint">
+            Browse through a NordVPN server (replaces the proxy URL).
+          </span>
         </span>
         <input
           className="switch"

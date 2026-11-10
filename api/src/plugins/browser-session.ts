@@ -10,6 +10,7 @@ const browserSessionPlugin: FastifyPluginAsync = async (fastify, _options) => {
     logger: fastify.log,
   });
   fastify.decorate("sessionService", sessionService);
+  await sessionService.initialize();
   fastify.addHook("preClose", async () => sessionService.close());
 };
 

@@ -1,5 +1,6 @@
 import type { SessionDetails } from "../api";
 import type { Tone } from "../format";
+import { viewNames, type WorkspaceView } from "./workspace-pages";
 import {
   ArrowUpRightIcon,
   BookIcon,
@@ -58,7 +59,7 @@ function SessionItem({
     >
       <span className="session-dot" data-status={session.status} />
       <span className="rail-item-label">
-        {session.status === "idle" ? "Idle browser" : shortId(session.id)}
+        {session.status === "idle" ? "Idle browser" : session.name || shortId(session.id)}
       </span>
       <span className="rail-item-meta">
         {session.status === "live" ? age(session.createdAt) : session.status}
@@ -81,11 +82,12 @@ export function Rail({
   sessions: SessionDetails[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  view: "sessions" | "cookies";
-  onView: (view: "sessions" | "cookies") => void;
+  view: WorkspaceView;
+  onView: (view: WorkspaceView) => void;
 }) {
   const problem = problems[status];
-  const live = sessions.filter((s) => s.status !== "released");
+  const live = sessions.filter((s) => s.status === "live" || s.status === "idle");
+  const parked = sessions.filter((s) => s.status === "parked");
   const released = sessions.filter((s) => s.status === "released").slice(0, 5);
 
   return (
@@ -134,8 +136,47 @@ export function Rail({
               }}
             >
               <BookIcon />
-              <span className="rail-item-label">Cookie library</span>
+              <span className="rail-item-label">Saved logins</span>
             </a>
+            {(
+              [
+                "pool",
+                "watchers",
+                "warm",
+                "extensions",
+                "network",
+                "extract",
+                "operations",
+              ] as WorkspaceView[]
+            ).map((key) => (
+              <a
+                key={key}
+                className="rail-item"
+                href={`?view=${key}`}
+                aria-current={view === key ? "page" : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onView(key);
+                }}
+              >
+                <span className="nav-symbol" aria-hidden="true">
+                  {
+                    (
+                      {
+                        pool: "◫",
+                        watchers: "◎",
+                        warm: "⌁",
+                        extensions: "▧",
+                        network: "↗",
+                        extract: "⇩",
+                        operations: "≡",
+                      } as Record<string, string>
+                    )[key]
+                  }
+                </span>
+                <span className="rail-item-label">{viewNames[key]}</span>
+              </a>
+            ))}
           </div>
         </div>
         <div className="rail-group">
@@ -153,6 +194,21 @@ export function Rail({
             ))}
           </div>
         </div>
+        {parked.length > 0 && (
+          <div className="rail-group">
+            <p className="rail-group-title">Parked ({parked.length})</p>
+            <div className="rail-items">
+              {parked.map((session) => (
+                <SessionItem
+                  key={session.id}
+                  session={session}
+                  current={view === "sessions" && session.id === selectedId}
+                  onSelect={onSelect}
+                />
+              ))}
+            </div>
+          </div>
+        )}
         {released.length > 0 && (
           <div className="rail-group">
             <p className="rail-group-title">Released</p>

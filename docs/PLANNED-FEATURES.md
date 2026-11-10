@@ -1,45 +1,79 @@
-# Planned features: status and remaining work
+# Feature roadmap: implementation and deployment status
 
-This file tracks the feature list the owner picked and the remaining architecture draft. The initial draft
-was written against fork main `ef515aa`. PR #7 now includes the first session foundation, based on main
-`0469ef1`; the unchecked work below remains a proposal to check against the code.
+The owner selected the complete roadmap below for PR #7, including the companion
+MCP, harness and deployment work. The initial architecture draft targeted fork
+main `ef515aa`; the PR incorporates main `0469ef1`. The specification below is
+retained as the accepted scope. The operator-facing contract and configuration
+are in [SESSION-PLATFORM.md](SESSION-PLATFORM.md) and
+[MULTI_SESSION.md](../MULTI_SESSION.md).
 
-Implemented in PR #7:
+## Implementation status
 
-- Explicit slot states, ownership through teardown, shared concurrent release, launch cancellation and shutdown cleanup.
-- FIFO session creation with `queueTimeout`, timeout and disconnect handling, 429 pool details and `Retry-After`.
-- Basic `GET /v1/pool` slot and queue status. Memory stats, parked sessions and background workers remain planned.
-- Targeted bulk-route release bodies, scoped reads returning 404, accurate browser health, masked proxy credentials,
-  and bundled rrweb recording disabled unless `RRWEB_RECORDING=true`.
-- OpenAPI and generated UI types, regression tests and real Chromium queue handoff checks.
+Checked items describe source implementation and local validation, not a live
+production rollout. Final deployment evidence belongs in the separate checklist.
 
-See [MULTI_SESSION.md](../MULTI_SESSION.md) for the implemented API contract. The broader API below describes
-the eventual target and includes fields and routes that do not exist yet.
+- [x] Session foundation: explicit slot lifecycle, FIFO queue, timeout/disconnect
+      handling, targeted release, scoped reads, truthful health and proxy redaction.
+- [x] Lifetime and idle expiry, activity tracking, touch/update routes, reaper,
+      keep-alive/job/handoff exemptions and queue preemption.
+- [x] Park/resume with retained profiles, cookie/tab/scroll/sessionStorage capture,
+      thumbnails, metadata reload, expiry/limits and shutdown parking.
+- [x] Pool/process/memory reporting, admission guard, session-scoped files and retention.
+- [x] Platform events, notifications, audit, metrics, encrypted atomic storage,
+      background jobs and named/NordVPN egress.
+- [x] Cookie-library health checks and scheduling, expiry/recovery notifications,
+      write-back/restore, identity pins, client access rules and audit events.
+- [x] Human handoff, activity timeline/screenshots, opt-in CDP recording and replay API.
+- [x] Warm browsers, structured extraction with schema validation/repair, page
+      watchers, extension ZIP/CRX library and upstream-sync workflow.
+- [x] UI operator surfaces for sessions, pool, logins, handoff, timeline, files,
+      recordings, automation, egress, extraction, notifications and audit.
+- [x] Three UI design directions prepared; Workshop is the selected default.
+- [x] Harness session selection, scoped CDP targets and closed-panel polling fixes.
+- [x] Companion MCP implementation and generated 28-tool catalog; production verification follows the release.
+- [x] Harness visual controls and live harness deployment (PRs #35 and #36).
+- [x] Final cross-package regression run and OpenAPI/generated-client refresh.
 
-## Remaining work
+Validation completed during implementation includes focused lifecycle, HTTP,
+store, login, agent-feature and extras tests; API/UI production builds; real
+Chromium login/ACL/write-back and handoff/recording/restart checks; and an operator
+UI browser flow covering creation, handoff, login capture, recording, files,
+parking/resume, watcher/warm work and extraction against a deterministic local LLM.
+The final feature/core API run passes 464 tests across 63 files, with Chromium and
+heavy scrape checks enabled. Another nine CDP interception tests pass in isolated
+Chromium. The unchanged command engine passes 234 of 238 tests using temporary
+localhost fixture aliases in an isolated container: three existing accessible-name
+whitespace mismatches and one pseudo-element description mismatch remain. Command
+implementation and tests match base main `0469ef1`. MCP passes 131 tests; the UI
+browser smoke passes 13 checks. API and UI production builds pass.
 
-- [ ] Review the rest of the draft below against the code
-- [x] PR A foundation: slot lifecycle, FIFO wait, basic pool status and fixes in section 1.7
-- [ ] PR A remaining: idle timeout and reaper, park and resume, park on shutdown,
-      expanded pool status, memory guard, per-session files, events, notifier, audit log, metrics, egress
-- [ ] PR B, logins: cookie set health checks, write-back, fingerprint pin, access rules, audit entries
-- [ ] PR C, agents: human handoff, action timeline, recording and replay data
-- [ ] PR D, extras: warm sessions, extract endpoint, page watchers, extension library, upstream sync workflow
-- [ ] MCP wrapper (homelab `vps/mcp-steel`): queue wait, park and resume, handoff, timeline, new tools
-- [ ] Homelab: env, data volume, stop grace period, notification webhook, home egress proxy, LiteLLM key,
-      pin bump workflow, deploy
-- [ ] Harness panel (vertex-harness): follow the agent's own session
-- [ ] UI: three design directions as screenshots for the owner to pick, then the UI for all of the above
+The isolated browser runs preserve managed host policies. The fixture adaptation
+is not a repository change. Production release SHAs and checks are recorded below
+once rollout finishes.
 
-Done so far: the code of the fork, the UI, the MCP wrapper, the homelab wiring and the harness panel was mapped;
-the draft below was written from those maps. Not picked and not to build: an API token on steel-api.
+## Deployment verification
+
+- [ ] Push the final reviewed Steel commit and update PR #7's complete scope.
+- [ ] Update both pinned Steel API/UI commits in homelab and verify compose settings.
+- [ ] Provision/verify data encryption, notification webhook, home proxy credentials
+      and the Steel LiteLLM key without replacing existing credential/profile volumes.
+- [ ] Apply the home egress proxy configuration and verify its actual outbound IP.
+- [ ] Verify the real notification destination and LLM provider/model.
+- [ ] Deploy Steel API, UI and MCP; verify their running versions and health.
+- [ ] Deploy the harness changes and verify the agent follows its own live session.
+- [ ] Verify production queue/expiry/park/resume/restart, login maintenance,
+      handoff, recording, downloads, watchers, warm browsers and extension loading.
+- [ ] Confirm upstream-sync and homelab pin-bump workflows are installed and runnable.
+
+No API token on steel-api was selected. Existing authentication/network controls
+remain the access boundary; `X-Steel-Client` is caller attribution, not authentication.
 
 ## Features picked
 
 
-First batch:
-- (2) Idle timeout and slot reaper. `timeout` is accepted but never enforced; MCP default sessions live
-  forever; 4 slots fill up and new sessions get 429. Release/park after N minutes with no activity,
+First batch (original motivation and selected behavior):
+- (2) Idle timeout and slot reaper. Originally `timeout` was accepted but never enforced; MCP default
+  sessions could fill all four slots indefinitely. Release/park after N minutes with no activity,
   honor `timeout`, show "releases in 12 min" in the UI.
 - (3) Wait for a slot instead of 429: POST /v1/sessions can queue (FIFO) until a slot frees.
 - (4) Cookie set health and auto-refresh: per set, expiry of its auth cookies, an optional "am I logged
@@ -80,7 +114,7 @@ Housekeeping and ops:
 - (19) Chrome extensions per session: load unpacked extensions into chosen sessions.
 
 
-## API and architecture draft
+## Accepted API and architecture specification
 
 
 Scope: features 2-19 (not 1) plus parking. Built on top of saved browsers (`browserProfile`, `/v1/browser-profiles`,

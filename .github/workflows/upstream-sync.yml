@@ -1,0 +1,68 @@
+name: Sync upstream Steel
+
+on:
+  schedule:
+    - cron: "25 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'hiboute/steel-browser'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+      - name: Merge upstream into a review branch
+        id: merge
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/steel-dev/steel-browser.git
+          git fetch upstream main
+          git checkout -B upstream-sync origin/main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git merge --no-edit upstream/main
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        if: steps.merge.outputs.changed == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - name: Validate the merged tree
+        if: steps.merge.outputs.changed == 'true'
+        run: |
+          npm ci
+          npm run build
+          npm test -w api
+        env:
+          CHROME_EXECUTABLE_PATH: /usr/bin/google-chrome
+      - name: Publish or update the review branch
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+        run: |
+          git push --force-with-lease origin upstream-sync
+          cat > /tmp/upstream-pr-body.txt <<'BODY'
+          Merge the current steel-dev/steel-browser main into this fork. API tests and API/UI production builds passed on the merged tree in the upstream-sync workflow.
+
+          Review upstream behavior and fork integrations before merging. This workflow never merges the pull request.
+          BODY
+          pr=$(gh pr list --head upstream-sync --base main --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --title 'chore: sync upstream Steel' --body-file /tmp/upstream-pr-body.txt
+          else
+            gh pr create --head upstream-sync --base main --title 'chore: sync upstream Steel' --body-file /tmp/upstream-pr-body.txt
+          fi

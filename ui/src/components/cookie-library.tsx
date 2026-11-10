@@ -3,10 +3,12 @@ import {
   captureCookieSet,
   deleteCookieSet,
   listCookieSets,
+  mutate,
   type CookieSetSummary,
   type SessionDetails,
 } from "../api";
 import { Notice } from "./notice";
+import { ErrorMessage } from "./workspace-pages";
 
 export function useCookieSets() {
   const [state, setState] = useState<{
@@ -39,6 +41,73 @@ function when(iso: string | null) {
 export function CookieLibraryPage() {
   const { sets, encrypted, error, refresh } = useCookieSets();
   const [busy, setBusy] = useState<string | null>(null);
+  const [failure, setFailure] = useState("");
+  const [selected, setSelected] = useState<CookieSetSummary | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const action = async (set: CookieSetSummary, kind: string) => {
+    setBusy(set.name);
+    setFailure("");
+    try {
+      await mutate(`/v1/cookie-library/${encodeURIComponent(set.name)}/${kind}`, {});
+      refresh();
+    } catch (e) {
+      setFailure((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const save = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selected) return;
+    const f = new FormData(e.currentTarget);
+    const val = (k: string) => String(f.get(k) || "").trim() || undefined;
+    setBusy(selected.name);
+    setFailure("");
+    try {
+      await mutate(
+        `/v1/cookie-library/${encodeURIComponent(selected.name)}`,
+        {
+          description: val("description"),
+          writeBack: f.get("writeBack") === "on",
+          pinFingerprint: f.get("pinFingerprint") === "on",
+          egress: val("egress"),
+          acl: {
+            clients:
+              f.get("access") === "all"
+                ? ["*"]
+                : f.get("access") === "ui"
+                ? []
+                : String(f.get("clients") || "")
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+          },
+          authCookies: String(f.get("authCookies") || "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          check: val("url")
+            ? {
+                url: val("url"),
+                loggedInSelector: val("loggedInSelector"),
+                loggedOutSelector: val("loggedOutSelector"),
+                loggedOutUrlPattern: val("loggedOutUrlPattern"),
+                textIncludes: val("textIncludes"),
+                intervalHours: Number(f.get("intervalHours")),
+                enabled: f.get("enabled") === "on",
+              }
+            : undefined,
+        },
+        "PATCH",
+      );
+      dialog.current?.close();
+      refresh();
+    } catch (e) {
+      setFailure((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   if (error) return <Notice title="Can't load the cookie library">{error}</Notice>;
   if (!sets) return <Notice title="Loading" busy />;
@@ -46,13 +115,13 @@ export function CookieLibraryPage() {
   return (
     <section className="library" aria-label="Cookie library">
       <div className="library-head">
-        <h1 className="library-title">Cookie library</h1>
+        <h1 className="library-title">Saved logins</h1>
         <p className="field-hint">
-          Saved logins: cookies and localStorage captured from a session, loaded into new sessions
-          with <code>cookieSets</code>.{" "}
+          Reuse your sign-ins across browsers and keep them healthy with regular checks.{" "}
           {encrypted ? "Encrypted at rest." : "Not encrypted at rest."}
         </p>
       </div>
+      <ErrorMessage error={failure} />
       {sets.length === 0 ? (
         <Notice title="No saved cookies yet">
           Log in to a site in a session, then use <strong>Save cookies</strong> above the live view.
@@ -64,7 +133,8 @@ export function CookieLibraryPage() {
               <th>Name</th>
               <th>Sites</th>
               <th>Cookies</th>
-              <th>First expiry</th>
+              <th>Health</th>
+              <th>Auth expiry</th>
               <th>Updated</th>
               <th />
             </tr>
@@ -81,33 +151,227 @@ export function CookieLibraryPage() {
                   {set.cookieCount}
                   {set.originCount > 0 && ` + ${set.originCount} storage`}
                 </td>
-                <td>{when(set.expiresAt)}</td>
+                <td>
+                  <span
+                    className={`badge ${
+                      ["failing", "expired"].includes(set.health?.status || "") ? "bad" : ""
+                    }`}
+                  >
+                    {set.health?.status ?? "unknown"}
+                  </span>
+                  {set.health?.lastResult && (
+                    <small title={set.health.lastResult.reason}>
+                      {set.health.lastResult.reason}
+                    </small>
+                  )}
+                </td>
+                <td>{when(set.authExpiresAt ?? set.expiresAt)}</td>
                 <td>{when(set.updatedAt)}</td>
                 <td>
-                  <button
-                    type="button"
-                    className="pill-button"
-                    data-variant="danger"
-                    disabled={busy === set.name}
-                    onClick={async () => {
-                      if (!window.confirm(`Delete the cookie set "${set.name}"?`)) return;
-                      setBusy(set.name);
-                      try {
-                        await deleteCookieSet(set.name);
-                      } finally {
-                        setBusy(null);
-                        refresh();
-                      }
-                    }}
-                  >
-                    Delete
-                  </button>
+                  <div className="button-row">
+                    <button
+                      className="pill-button"
+                      disabled={busy === set.name || !set.check}
+                      onClick={() => void action(set, "check")}
+                    >
+                      Check
+                    </button>
+                    <button
+                      className="pill-button"
+                      onClick={() => {
+                        setSelected(set);
+                        dialog.current?.showModal();
+                      }}
+                    >
+                      Settings
+                    </button>
+                    {set.hasPrevious && (
+                      <button
+                        className="pill-button"
+                        disabled={busy === set.name}
+                        onClick={() => {
+                          if (window.confirm(`Restore the previous login for ${set.name}?`))
+                            void action(set, "restore-previous");
+                        }}
+                      >
+                        Restore
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="pill-button"
+                      data-variant="danger"
+                      disabled={busy === set.name}
+                      onClick={async () => {
+                        if (!window.confirm(`Delete the cookie set "${set.name}"?`)) return;
+                        setBusy(set.name);
+                        try {
+                          await deleteCookieSet(set.name);
+                        } catch (e) {
+                          setFailure((e as Error).message);
+                        } finally {
+                          setBusy(null);
+                          refresh();
+                        }
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+      <dialog className="dialog wide-dialog" ref={dialog}>
+        <form key={selected?.name} className="dialog-form" onSubmit={save}>
+          <div className="dialog-head">
+            <h2 className="dialog-title">{selected?.name} settings</h2>
+            <p className="dialog-description">
+              Check sign-in status and keep this login's device and network consistent.
+            </p>
+          </div>
+          <div className="dialog-body">
+            <label className="field">
+              Description
+              <input className="input" name="description" defaultValue={selected?.description} />
+            </label>
+            <label className="field">
+              Check URL
+              <input
+                className="input"
+                name="url"
+                type="url"
+                defaultValue={selected?.check?.url}
+                placeholder="https://example.com/account"
+              />
+            </label>
+            <div className="form-grid">
+              <label className="field">
+                Logged-in selector
+                <input
+                  className="input"
+                  name="loggedInSelector"
+                  defaultValue={selected?.check?.loggedInSelector}
+                />
+              </label>
+              <label className="field">
+                Logged-out selector
+                <input
+                  className="input"
+                  name="loggedOutSelector"
+                  defaultValue={selected?.check?.loggedOutSelector}
+                />
+              </label>
+            </div>
+            <label className="field">
+              Logged-out URL pattern
+              <input
+                className="input"
+                name="loggedOutUrlPattern"
+                defaultValue={selected?.check?.loggedOutUrlPattern}
+              />
+            </label>
+            <label className="field">
+              Expected text
+              <input
+                className="input"
+                name="textIncludes"
+                defaultValue={selected?.check?.textIncludes}
+              />
+            </label>
+            <label className="field">
+              Check every (hours)
+              <input
+                className="input"
+                name="intervalHours"
+                type="number"
+                min={1}
+                defaultValue={selected?.check?.intervalHours ?? 24}
+              />
+            </label>
+            <label className="check-row">
+              <input
+                name="enabled"
+                type="checkbox"
+                defaultChecked={selected?.check?.enabled ?? true}
+              />
+              Run checks automatically
+            </label>
+            <label className="check-row">
+              <input
+                name="writeBack"
+                type="checkbox"
+                defaultChecked={selected?.writeBack ?? true}
+              />
+              Save fresher cookies when a browser ends
+            </label>
+            <label className="check-row">
+              <input
+                name="pinFingerprint"
+                type="checkbox"
+                defaultChecked={selected?.pinFingerprint ?? true}
+              />
+              Reuse this login's browser fingerprint
+            </label>
+            <label className="field">
+              Pinned network
+              <input
+                className="input"
+                name="egress"
+                defaultValue={selected?.egress}
+                placeholder="Default"
+              />
+            </label>
+            <label className="field">
+              Access
+              <select
+                className="input"
+                name="access"
+                defaultValue={
+                  !selected?.acl || selected.acl.clients.includes("*")
+                    ? "all"
+                    : selected.acl.clients.length
+                    ? "restricted"
+                    : "ui"
+                }
+              >
+                <option value="all">All clients</option>
+                <option value="restricted">Named clients only</option>
+                <option value="ui">UI only</option>
+              </select>
+            </label>
+            <label className="field">
+              Allowed clients (comma separated)
+              <input
+                className="input"
+                name="clients"
+                defaultValue={selected?.acl?.clients.join(", ")}
+                placeholder="mcp:owner@example.com"
+              />
+            </label>
+            <label className="field">
+              Authentication cookie names (comma separated)
+              <input
+                className="input"
+                name="authCookies"
+                defaultValue={selected?.authCookies?.join(", ")}
+                placeholder="Automatic detection"
+              />
+            </label>
+            <ErrorMessage error={failure} />
+          </div>
+          <div className="dialog-foot">
+            <button type="button" className="button" onClick={() => dialog.current?.close()}>
+              Cancel
+            </button>
+            <button className="button" data-variant="primary" disabled={Boolean(busy)}>
+              Save settings
+            </button>
+          </div>
+        </form>
+      </dialog>
     </section>
   );
 }

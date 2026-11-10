@@ -89,6 +89,21 @@ const envSchema = z.object({
   MAX_SESSIONS: z.coerce.number().int().min(1).prefault(1),
   SESSION_QUEUE_MAX_MS: z.coerce.number().int().min(1).max(2_147_483_647).prefault(600_000),
   SESSION_QUEUE_TIMEOUT_MS: z.coerce.number().int().min(0).max(2_147_483_647).prefault(0),
+  SESSION_TIMEOUT_MS: z.coerce.number().int().min(0).max(2_147_483_647).prefault(0),
+  SESSION_IDLE_TIMEOUT_MS: z.coerce.number().int().min(0).max(2_147_483_647).prefault(0),
+  SESSION_EXPIRE_ACTION: z.enum(["park", "release"]).default("park"),
+  SESSION_REAPER_INTERVAL_MS: z.coerce.number().int().min(10).max(2_147_483_647).prefault(10_000),
+  SESSION_PREEMPT_IDLE_MS: z.coerce.number().int().min(0).max(2_147_483_647).prefault(0),
+  PARKED_TTL_MS: z.coerce.number().int().min(0).prefault(604_800_000),
+  PARKED_MAX: z.coerce.number().int().min(1).prefault(20),
+  SHUTDOWN_PARK_TIMEOUT_MS: z.coerce.number().int().min(1).max(2_147_483_647).prefault(20_000),
+  STEEL_DATA_DIR: z.string().optional(),
+  STEEL_DATA_KEY: z.string().optional(),
+  IDLE_IGNORED_CDP_METHODS: z
+    .string()
+    .default(
+      "Page.screencastFrameAck,Input.dispatchMouseEvent:mouseMoved,Target.getTargets,Browser.getVersion,Target.setDiscoverTargets,Page.startScreencast,Page.stopScreencast,Page.enable,Runtime.enable",
+    ),
   RRWEB_RECORDING: z
     .string()
     .optional()

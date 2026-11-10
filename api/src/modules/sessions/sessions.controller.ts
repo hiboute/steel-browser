@@ -5,10 +5,14 @@ import { CookieData } from "../../services/context/types.js";
 import { getUrl, getBaseUrl, getSessionUrl } from "../../utils/url.js";
 import {
   BrowserProfileInUseError,
+  SessionStateError,
   SessionPoolFullError,
   type Session,
 } from "../../services/session.service.js";
-import { CookieSetNotFoundError } from "../../services/cookie-library.service.js";
+import {
+  CookieSetNotFoundError,
+  CookieSetDeniedError,
+} from "../../services/cookie-library.service.js";
 import { NordVpnError, nordVpnProxy } from "../../services/nordvpn.service.js";
 import { PoolClosedError } from "../../services/browser-pool.service.js";
 
@@ -28,6 +32,16 @@ export const handleLaunchBrowserSession = async (
   try {
     const {
       sessionId,
+      name,
+      labels,
+      timeout,
+      idleTimeout,
+      keepAlive,
+      onExpire,
+      egress,
+      record,
+      cookieSetWriteBack,
+      fingerprint,
       proxyUrl,
       userDataDir,
       persist,
@@ -58,16 +72,13 @@ export const handleLaunchBrowserSession = async (
           localStorage?: Record<string, Record<string, any>> | undefined;
         }
       | undefined;
-    if (cookieSets && cookieSets.length > 0) {
-      const fromLibrary = await server.cookieLibrary.resolve(cookieSets);
-      const own = mergedContext ?? {};
-      mergedContext = {
-        ...own,
-        cookies: [...fromLibrary.cookies, ...(own.cookies ?? [])],
-        localStorage: { ...fromLibrary.localStorage, ...(own.localStorage ?? {}) },
-      };
-    }
 
+    if ([proxyUrl, vpn, egress].filter((value) => value !== undefined).length > 1)
+      throw new SessionStateError(
+        "invalid_egress",
+        "Pass only one of egress, vpn or proxyUrl",
+        400,
+      );
     let upstream = proxyUrl;
     let proxyLabel: string | undefined;
     if (vpn) {
@@ -78,6 +89,18 @@ export const handleLaunchBrowserSession = async (
     }
 
     return await server.sessionService.startSession({
+      name,
+      labels,
+      timeout,
+      idleTimeout,
+      keepAlive,
+      onExpire,
+      egress,
+      record,
+      cookieSets,
+      cookieSetWriteBack,
+      fingerprint,
+      client: request.steelClient ?? "anonymous",
       queueTimeout,
       signal: cancellation.signal,
       sessionId,
@@ -113,11 +136,17 @@ export const handleLaunchBrowserSession = async (
         .header("Retry-After", "1")
         .send({
           success: false,
-          code: "pool_full",
+          code: e.code,
           message: error,
           pool: { max: pool.maxSessions, live: pool.live, queued: pool.queued },
         });
     }
+    if (e instanceof SessionStateError)
+      return reply.code(e.statusCode).send({ success: false, code: e.code, message: e.message });
+    if (e instanceof CookieSetDeniedError)
+      return reply
+        .code(403)
+        .send({ success: false, code: "cookie_set_denied", message: e.message });
     if (e instanceof PoolClosedError) {
       return reply.code(503).send({ success: false, code: "shutting_down", message: error });
     }
@@ -172,6 +201,10 @@ export const handleGetBrowserContext = async (
   request: FastifyRequest<{ Params: { sessionId: string } }>,
   reply: FastifyReply,
 ) => {
+  if (server.sessionService.isParked?.(request.params.sessionId))
+    return reply
+      .code(409)
+      .send({ success: false, code: "session_parked", message: "Session is parked" });
   const session = server.sessionService.findSocketSession(request.params.sessionId);
   if (!session)
     return reply
@@ -228,15 +261,22 @@ export const handleGetSessionDetails = async (
 
 export const handleGetSessions = async (
   server: FastifyInstance,
-  request: FastifyRequest,
+  request: FastifyRequest<{ Querystring: { include?: string } }>,
   reply: FastifyReply,
 ) => {
   // Live sessions first, newest first; then the idle browser if nothing is live;
   // then released ones, newest first.
   const live = server.sessionService.listSessions().reverse();
+  const parked =
+    request.query?.include === "parked"
+      ? server.sessionService
+          .listSessions(true)
+          .filter((session) => session.status === "parked")
+          .reverse()
+      : [];
   const current = live.length > 0 ? live : [server.sessionService.activeSession];
   const past = [...server.sessionService.pastSessions].reverse();
-  return reply.send({ sessions: [...current, ...past].map(publicSession) });
+  return reply.send({ sessions: [...current, ...parked, ...past].map(publicSession) });
 };
 
 export const handleGetSessionStream = async (
@@ -246,6 +286,10 @@ export const handleGetSessionStream = async (
 ) => {
   const { showControls, theme, interactive, pageId, pageIndex } = request.query;
   const sessionId = (request.params as { sessionId?: string } | undefined)?.sessionId;
+  if (sessionId && server.sessionService.isParked(sessionId))
+    return reply
+      .code(409)
+      .send({ success: false, code: "session_parked", message: "Session is parked" });
   const session = sessionId
     ? server.sessionService.findSocketSession(sessionId)
     : server.sessionService.activeSession;
@@ -281,6 +325,10 @@ export const handleGetSessionLiveDetails = async (
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply,
 ) => {
+  if (server.sessionService.isParked?.(request.params.id))
+    return reply
+      .code(409)
+      .send({ success: false, code: "session_parked", message: "Session is parked" });
   const session = server.sessionService.findSocketSession(request.params.id);
   if (!session)
     return reply

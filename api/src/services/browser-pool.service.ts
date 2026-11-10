@@ -19,6 +19,7 @@ export class PoolClosedError extends Error {
 interface SlotRequest {
   sessionId: string;
   primaryOnly: boolean;
+  background: boolean;
   enqueuedAt: number;
   finish: (slot: PoolSlot | null, error?: Error) => void;
 }
@@ -36,6 +37,15 @@ export class BrowserPool {
   private logger: FastifyBaseLogger;
   private waiters: SlotRequest[] = [];
   private closed = false;
+  private admission: () => boolean = () => true;
+  private retryTimer?: NodeJS.Timeout;
+
+  setAdmissionGuard(check: () => boolean) {
+    this.admission = check;
+  }
+  hasMemoryCapacity() {
+    return this.admission();
+  }
 
   constructor(
     maxSessions: number,
@@ -78,14 +88,23 @@ export class BrowserPool {
   }
 
   /** Takes the first free slot (the primary first), or null when all are busy. */
-  acquire(sessionId: string, options: { primaryOnly?: boolean } = {}): PoolSlot | null {
+  acquire(
+    sessionId: string,
+    options: { primaryOnly?: boolean; background?: boolean } = {},
+  ): PoolSlot | null {
     if (this.closed) throw new PoolClosedError();
     // A new arrival must not jump ahead of an existing waiter.
     if (this.waiters.length) return null;
-    return this.takeSlot(sessionId, options.primaryOnly ?? false);
+    return this.takeSlot(sessionId, options.primaryOnly ?? false, options.background ?? false);
   }
 
-  private takeSlot(sessionId: string, primaryOnly: boolean): PoolSlot | null {
+  private takeSlot(sessionId: string, primaryOnly: boolean, background = false): PoolSlot | null {
+    if (
+      !this.admission() ||
+      (background &&
+        (this.waiters.length > 0 || this.slots.filter((s) => s.state === "free").length <= 1))
+    )
+      return null;
     const candidates = primaryOnly ? this.slots.slice(0, 1) : this.slots;
     const slot = candidates.find((s) => s.state === "free");
     if (!slot) {
@@ -103,11 +122,16 @@ export class BrowserPool {
   /** FIFO reservation. A slot remains owned until teardown explicitly releases it. */
   async acquireWhenAvailable(
     sessionId: string,
-    options: { primaryOnly?: boolean; timeoutMs?: number; signal?: AbortSignal } = {},
+    options: {
+      primaryOnly?: boolean;
+      background?: boolean;
+      timeoutMs?: number;
+      signal?: AbortSignal;
+    } = {},
   ): Promise<PoolSlot | null> {
     options.signal?.throwIfAborted();
     const immediate = this.acquire(sessionId, options);
-    if (immediate || !options.timeoutMs) return immediate;
+    if (immediate || !options.timeoutMs || options.background) return immediate;
 
     return new Promise((resolve, reject) => {
       let finished = false;
@@ -116,6 +140,7 @@ export class BrowserPool {
       const request: SlotRequest = {
         sessionId,
         primaryOnly: options.primaryOnly ?? false,
+        background: options.background ?? false,
         enqueuedAt: Date.now(),
         finish: (slot, error) => {
           if (finished) return;
@@ -126,12 +151,20 @@ export class BrowserPool {
           if (index !== -1) this.waiters.splice(index, 1);
           if (error) reject(error);
           else resolve(slot);
+          if (!this.waiters.length) {
+            clearInterval(this.retryTimer);
+            this.retryTimer = undefined;
+          }
           this.drain();
         },
       };
       const timer = setTimeout(() => request.finish(null), options.timeoutMs);
       timer.unref();
       this.waiters.push(request);
+      if (!this.retryTimer) {
+        this.retryTimer = setInterval(() => this.drain(), 1000);
+        this.retryTimer.unref();
+      }
       options.signal?.addEventListener("abort", onAbort, { once: true });
       if (options.signal?.aborted) onAbort();
     });
@@ -141,7 +174,7 @@ export class BrowserPool {
     if (this.closed) return;
     const first = this.waiters[0];
     if (!first) return;
-    const slot = this.takeSlot(first.sessionId, first.primaryOnly);
+    const slot = this.takeSlot(first.sessionId, first.primaryOnly, first.background);
     if (slot) first.finish(slot);
   }
 
@@ -165,6 +198,7 @@ export class BrowserPool {
 
   close(): void {
     this.closed = true;
+    clearInterval(this.retryTimer);
     for (const waiter of [...this.waiters]) waiter.finish(null, new PoolClosedError());
   }
 

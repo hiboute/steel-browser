@@ -6,7 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { getSessions, sessionSocketPath, wsUrl, type SessionDetails } from "./api";
+import { getSessions, request, sessionSocketPath, wsUrl, type SessionDetails } from "./api";
 import { describeEvent, isBrowserEvent, type BrowserEvent, type EventSummary } from "./format";
 
 export type LogEntry = {
@@ -55,10 +55,11 @@ export function useSessions(intervalMs = 1000) {
   return { ...state, refresh };
 }
 
-export function useSocket(path: string, onMessage: (data: unknown) => void) {
+export function useSocket(path: string | null, onMessage: (data: unknown) => void) {
   const onData = useEffectEvent(onMessage);
 
   useEffect(() => {
+    if (!path) return;
     let socket: WebSocket | undefined;
     let timer: number | undefined;
     let attempt = 0;
@@ -101,23 +102,26 @@ export function useLogs(session: SessionDetails, limit = 1000) {
   const pending = useRef<LogEntry[]>([]);
   const frame = useRef<number | null>(null);
 
-  useSocket(sessionSocketPath(session, "logs"), (data) => {
-    const events = (Array.isArray(data) ? data : [data]).filter(isBrowserEvent);
-    if (events.length === 0) return;
-    const next = events.map((event) => ({
-      id: (sequence.current += 1),
-      event,
-      summary: describeEvent(event),
-    }));
-    pending.current = [...pending.current, ...next].slice(-limit);
-    if (frame.current !== null) return;
-    frame.current = window.requestAnimationFrame(() => {
-      frame.current = null;
-      const batch = pending.current;
-      pending.current = [];
-      setEntries((current) => [...current, ...batch].slice(-limit));
-    });
-  });
+  useSocket(
+    ["live", "idle"].includes(session.status) ? sessionSocketPath(session, "logs") : null,
+    (data) => {
+      const events = (Array.isArray(data) ? data : [data]).filter(isBrowserEvent);
+      if (events.length === 0) return;
+      const next = events.map((event) => ({
+        id: (sequence.current += 1),
+        event,
+        summary: describeEvent(event),
+      }));
+      pending.current = [...pending.current, ...next].slice(-limit);
+      if (frame.current !== null) return;
+      frame.current = window.requestAnimationFrame(() => {
+        frame.current = null;
+        const batch = pending.current;
+        pending.current = [];
+        setEntries((current) => [...current, ...batch].slice(-limit));
+      });
+    },
+  );
 
   useEffect(
     () => () => {
@@ -132,13 +136,54 @@ export function useLogs(session: SessionDetails, limit = 1000) {
 export function usePageId(session: SessionDetails) {
   const [pageId, setPageId] = useState<string | null>(null);
 
-  useSocket(sessionSocketPath(session, "pageId"), (data) => {
-    if (typeof data === "object" && data !== null && "pageId" in data) {
-      if (typeof data.pageId === "string") setPageId(data.pageId);
-    }
-  });
+  useSocket(
+    ["live", "idle"].includes(session.status) ? sessionSocketPath(session, "pageId") : null,
+    (data) => {
+      if (typeof data === "object" && data !== null && "pageId" in data) {
+        if (typeof data.pageId === "string") setPageId(data.pageId);
+      }
+    },
+  );
 
   return pageId;
+}
+
+/** Poll only mounted, visible screens; abort work on navigation and prevent overlapping requests. */
+export function useResource<T>(path: string | null, intervalMs = 5000) {
+  const [data, setData] = useState<T>();
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+  const refresh = useCallback(() => setVersion((n) => n + 1), []);
+  useEffect(() => {
+    if (!path) {
+      setData(undefined);
+      return;
+    }
+    const controller = new AbortController();
+    let timer: number | undefined;
+    setData(undefined);
+    const poll = async () => {
+      if (document.visibilityState === "visible") {
+        try {
+          const value = await request<T>(path, { signal: controller.signal });
+          if (!controller.signal.aborted) {
+            setData(value);
+            setError(null);
+          }
+        } catch (cause) {
+          if (!controller.signal.aborted)
+            setError(cause instanceof Error ? cause.message : String(cause));
+        }
+      }
+      if (!controller.signal.aborted && intervalMs > 0) timer = window.setTimeout(poll, intervalMs);
+    };
+    void poll();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [path, intervalMs, version]);
+  return { data, error, refresh };
 }
 
 export function useStoredToggle(key: string, initial: boolean) {

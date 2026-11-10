@@ -20,6 +20,9 @@ function createReply() {
 
 function createController() {
   const fileService = {
+    forSession() {
+      return this;
+    },
     downloadFile: async () => ({
       stream: Readable.from([]),
       size: 0,

@@ -106,7 +106,7 @@ export class FilesController {
         }
 
         const readStream = fs.createReadStream(tempFilePath);
-        saveFileResult = await this.fileService.saveFile({
+        saveFileResult = await this.fileService.forSession(request.params.sessionId).saveFile({
           filePath: finalPath,
           stream: readStream,
         });
@@ -130,7 +130,7 @@ export class FilesController {
         }
 
         const { stream } = await this.createStreamFromUrl(fileUrl);
-        saveFileResult = await this.fileService.saveFile({
+        saveFileResult = await this.fileService.forSession(request.params.sessionId).saveFile({
           filePath: finalPath,
           stream,
         });
@@ -144,7 +144,10 @@ export class FilesController {
       }
 
       return reply.send({
-        path: saveFileResult.path,
+        path: path.relative(
+          this.fileService.forSession(request.params.sessionId).getBaseFilesPath(),
+          saveFileResult.path,
+        ),
         size: saveFileResult.size,
         lastModified: saveFileResult.lastModified,
       });
@@ -197,9 +200,11 @@ export class FilesController {
     reply: FastifyReply,
   ) {
     try {
-      const { stream, size, lastModified } = await this.fileService.downloadFile({
-        filePath: request.params["*"],
-      });
+      const { stream, size, lastModified } = await this.fileService
+        .forSession(request.params.sessionId)
+        .downloadFile({
+          filePath: request.params["*"],
+        });
 
       const name = request.params["*"].split("/").pop() || "downloaded-file";
 
@@ -221,9 +226,11 @@ export class FilesController {
     request: FastifyRequest<{ Params: { sessionId: string; "*": string } }>,
     reply: FastifyReply,
   ) {
-    const { size, lastModified } = await this.fileService.getFile({
-      filePath: request.params["*"],
-    });
+    const { size, lastModified } = await this.fileService
+      .forSession(request.params.sessionId)
+      .getFile({
+        filePath: request.params["*"],
+      });
 
     const name = request.params["*"].split("/").pop() || "downloaded-file";
 
@@ -244,11 +251,14 @@ export class FilesController {
     reply: FastifyReply,
   ) {
     try {
-      const files = await this.fileService.listFiles();
+      const files = await this.fileService.forSession(request.params.sessionId).listFiles();
 
       return reply.send({
         data: files.map((file) => ({
-          path: file.path,
+          path: path.relative(
+            this.fileService.forSession(request.params.sessionId).getBaseFilesPath(),
+            file.path,
+          ),
           size: file.size,
           lastModified: file.lastModified,
         })),
@@ -265,7 +275,7 @@ export class FilesController {
     reply: FastifyReply,
   ) {
     try {
-      await this.fileService.deleteFile({
+      await this.fileService.forSession(request.params.sessionId).deleteFile({
         filePath: request.params["*"],
       });
       return reply.code(204).send();
@@ -281,7 +291,7 @@ export class FilesController {
     reply: FastifyReply,
   ) {
     try {
-      await this.fileService.cleanupFiles();
+      await this.fileService.forSession(request.params.sessionId).cleanupFiles();
       return reply.code(204).send();
     } catch (e: unknown) {
       const error = getErrors(e);
@@ -294,7 +304,9 @@ export class FilesController {
     request: FastifyRequest<{ Params: { sessionId: string } }>,
     reply: FastifyReply,
   ) {
-    const prebuiltArchivePath = await this.fileService.getPrebuiltArchivePath();
+    const prebuiltArchivePath = await this.fileService
+      .forSession(request.params.sessionId)
+      .getPrebuiltArchivePath();
 
     try {
       const stats = await fs.promises.stat(prebuiltArchivePath);

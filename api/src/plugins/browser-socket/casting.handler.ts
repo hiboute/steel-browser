@@ -23,7 +23,9 @@ export async function handleCastSession(
   session: Session,
   params: Record<string, string> | undefined,
 ): Promise<void> {
-  if (!session || session.status !== "live") {
+  // The idle session is the primary browser between sessions: it runs and can
+  // be watched like a live one. Only a released session has no browser.
+  if (!session || (session.status !== "live" && session.status !== "idle")) {
     console.error(`Cast: session ${session?.id ?? "?"} is not live`);
     socket.destroy();
     return;

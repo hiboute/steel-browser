@@ -2,6 +2,8 @@ import { env } from "../env.js";
 import { SessionService } from "../services/session.service.js";
 import { makePassthrough, PassthroughServer } from "./passthrough-proxy.js";
 import { Server } from "proxy-chain";
+import https from "node:https";
+import { isIP } from "node:net";
 
 export interface IProxyServer {
   readonly url: string;
@@ -18,8 +20,18 @@ export class ProxyServer extends Server implements IProxyServer {
   public txBytes = 0;
   public rxBytes = 0;
   private hostConnections = new Set<number>();
+  private readonly upstreamHttpsAgent?: https.Agent;
 
   constructor(proxyUrl: string) {
+    const upstream = new URL(proxyUrl);
+    // CONNECT's Host is the destination website. Node otherwise derives TLS
+    // SNI/certificate verification from that header instead of the HTTPS proxy.
+    const upstreamHttpsAgent =
+      upstream.protocol === "https:"
+        ? new https.Agent({
+            servername: isIP(upstream.hostname.replace(/^\[|\]$/g, "")) ? "" : upstream.hostname,
+          })
+        : undefined;
     super({
       port: 0,
 
@@ -46,6 +58,7 @@ export class ProxyServer extends Server implements IProxyServer {
         return {
           requestAuthentication: false,
           upstreamProxyUrl: proxyUrl,
+          httpsAgent: upstreamHttpsAgent,
         };
       },
     });
@@ -60,6 +73,7 @@ export class ProxyServer extends Server implements IProxyServer {
 
     this.url = `http://127.0.0.1:${this.port}`;
     this.upstreamProxyUrl = proxyUrl;
+    this.upstreamHttpsAgent = upstreamHttpsAgent;
   }
 
   async listen(): Promise<void> {
@@ -71,7 +85,11 @@ export class ProxyServer extends Server implements IProxyServer {
     const socketsClosed = [...this.connections.values()].map(
       (socket) => new Promise<void>((resolve) => socket.once("close", () => resolve())),
     );
-    await super.close(force);
-    await Promise.all(socketsClosed);
+    try {
+      await super.close(force);
+      await Promise.all(socketsClosed);
+    } finally {
+      this.upstreamHttpsAgent?.destroy();
+    }
   }
 }

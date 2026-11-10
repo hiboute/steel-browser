@@ -116,6 +116,7 @@ export function Rail({
           <div className="rail-items">
             {(
               [
+                "home",
                 "inbox",
                 "automation",
                 "recovery",
@@ -128,7 +129,7 @@ export function Rail({
               <a
                 key={key}
                 className="rail-item"
-                href={`?view=${key}`}
+                href={key === "home" ? import.meta.env.BASE_URL : `?view=${key}`}
                 aria-current={view === key ? "page" : undefined}
                 onClick={(event) => {
                   event.preventDefault();
@@ -139,6 +140,7 @@ export function Rail({
                   {
                     (
                       {
+                        home: "⌂",
                         inbox: "▣",
                         automation: "▷",
                         recovery: "↺",
@@ -160,7 +162,7 @@ export function Rail({
           <div className="rail-items">
             <a
               className="rail-item"
-              href={import.meta.env.BASE_URL}
+              href="?view=sessions"
               aria-current={view === "sessions" ? "page" : undefined}
               onClick={(event) => {
                 event.preventDefault();

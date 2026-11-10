@@ -29,6 +29,7 @@ import { AutomationPage } from "./components/next/automation";
 import { IdentityPage } from "./components/next/identity";
 import { DataPage } from "./components/next/data";
 import { FleetPage } from "./components/next/fleet";
+import { HomePage } from "./components/next/home";
 import { PlatformPage } from "./components/next/platform";
 
 export function App() {
@@ -36,9 +37,10 @@ export function App() {
   const [selectedId, selectSession] = useUrlParam("session");
   const [view, setView] = useUrlParam("view");
   const currentView: WorkspaceView =
-    view && view in viewNames ? (view as WorkspaceView) : "sessions";
+    view && view in viewNames ? (view as WorkspaceView) : selectedId ? "sessions" : "home";
+  // The bare address is Home; a browser link (?session=) opens that browser.
   const select = (id: string | null) => {
-    if (view) setView(null);
+    setView(id ? null : "sessions");
     selectSession(id);
   };
   const selected = useResource<SessionDetails>(
@@ -88,7 +90,8 @@ export function App() {
           }}
           view={currentView}
           onView={(next) => {
-            setView(next === "sessions" ? null : next);
+            if (next === "home") selectSession(null);
+            setView(next === "home" ? null : next);
             if (window.innerWidth <= 900) toggleRail();
           }}
         />
@@ -107,7 +110,9 @@ export function App() {
             view={currentView}
           />
           <PoolSummary />
-          {currentView === "inbox" ? (
+          {currentView === "home" ? (
+            <HomePage onView={(next) => setView(next)} onSession={(id) => select(id)} />
+          ) : currentView === "inbox" ? (
             <InboxPage />
           ) : currentView === "automation" ? (
             <AutomationPage session={session} />

@@ -4,6 +4,7 @@ import customBodyParser from "../../plugins/custom-body-parser.js";
 import { schemas } from "../../plugins/schemas.js";
 import { PoolClosedError } from "../../services/browser-pool.service.js";
 import { SessionPoolFullError } from "../../services/session.service.js";
+import { IdentityError } from "../../services/identity/types.js";
 import routes from "./sessions.routes.js";
 
 const first = "00000000-0000-4000-8000-000000000001";
@@ -81,6 +82,30 @@ async function setup() {
 }
 
 describe("session HTTP lifecycle", () => {
+  it.each([
+    ["identity_upgrade_required", 409],
+    ["identity_override_conflict", 409],
+    ["unsupported_platform_claim", 400],
+  ])("preserves actionable %s launch errors", async (code, status) => {
+    const { app, service } = await setup();
+    const detail = { profile: "owned-identity", from: "Chrome/1", to: "Chrome/156" };
+    service.startSession.mockRejectedValue(
+      new IdentityError(code, "Review identity settings", status, detail),
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/sessions",
+      payload: { identityProfile: "owned-identity" },
+    });
+    expect(response.statusCode).toBe(status);
+    expect(response.json()).toEqual({
+      success: false,
+      code,
+      message: "Review identity settings",
+      detail,
+    });
+  });
+
   it("parses the legacy release body and releases only its named session", async () => {
     const { app, service, live } = await setup();
     const response = await app.inject({

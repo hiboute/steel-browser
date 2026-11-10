@@ -1365,9 +1365,10 @@ export class SessionService {
       // Do not reopen privileged or executable URLs from untrusted page state.
       if (!/^https?:\/\//i.test(tab.url) && tab.url !== "about:blank") continue;
       const page = index === 0 && existing[0] ? existing[0] : await session.cdpService.createPage();
+      let storageScript: string | undefined;
       if (restoreStorage && /^https?:\/\//i.test(tab.url)) {
         const origin = new URL(tab.url).origin;
-        await page.evaluateOnNewDocument(
+        const script = await page.evaluateOnNewDocument(
           (expected, storage) => {
             if (location.origin === expected)
               for (const [key, value] of Object.entries(storage))
@@ -1376,10 +1377,18 @@ export class SessionService {
           origin,
           tab.storage,
         );
+        storageScript = script?.identifier;
       }
-      await page
-        .goto(tab.url, { waitUntil: "domcontentloaded", timeout: 15_000 })
-        .catch(() => undefined);
+      try {
+        await page
+          .goto(tab.url, { waitUntil: "domcontentloaded", timeout: 15_000 })
+          .catch(() => undefined);
+      } finally {
+        // Restore the parked snapshot once. Later navigations must keep changes
+        // made by the resumed application instead of replaying stale storage.
+        if (storageScript)
+          await page.removeScriptToEvaluateOnNewDocument(storageScript).catch(() => undefined);
+      }
       await page
         .evaluate((x, y) => scrollTo(x, y), tab.scrollX, tab.scrollY)
         .catch(() => undefined);

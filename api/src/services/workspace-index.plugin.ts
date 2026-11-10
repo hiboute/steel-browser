@@ -66,7 +66,8 @@ const plugin: FastifyPluginAsync = async (server) => {
       owner: run.ownerId,
       sessionId: run.sessionId,
       title: name,
-      text: `${run.status} ${run.cursor}/${run.steps.length} ${run.pauseReason ?? ""}`,
+      // Pause reasons may be supplied by custom steps and contain page/command text.
+      text: `${run.status} ${run.cursor}/${run.steps.length}`,
       href: "/?view=inbox",
     });
   };
@@ -109,11 +110,13 @@ const plugin: FastifyPluginAsync = async (server) => {
     if (event.type === "workflow.receipt.updated" && data?.id) queue(() => indexReceipt(data.id!));
   });
   server.addHook("onReady", async () => {
-    for (const run of server.runs.list(internal)) await indexRun(run.id);
+    // Serialize backfill with live events. A source can disappear between listing
+    // and reading; that failure must not prevent the API from becoming ready.
+    for (const run of server.runs.list(internal)) queue(() => indexRun(run.id));
     for (const procedure of server.workflowService.listProcedures(internal))
-      await indexProcedure(procedure.id);
+      queue(() => indexProcedure(procedure.id));
     for (const receipt of await server.workflowService.listReceipts(internal))
-      await indexReceipt(receipt.id);
+      queue(() => indexReceipt(receipt.id));
     await pending;
   });
   server.addHook("preClose", async () => {

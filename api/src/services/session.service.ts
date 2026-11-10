@@ -1006,6 +1006,7 @@ export class SessionService {
     this.parkGuard = check;
   }
   public protectSession(id: string) {
+    this.thumbnails.delete(id);
     const options = this.getLaunchOptions(id);
     if (options) options.privateCapture = true;
     const session = this.getSession(id);
@@ -1196,13 +1197,31 @@ export class SessionService {
   public async thumbnail(id: string): Promise<Buffer> {
     const session = this.getSession(id);
     if (!session) throw new SessionStateError("session_not_found", "Session not found", 404);
-    if (session.status === "parked") return readFile(this.store.path(`parked/${id}/thumbnail.jpg`));
+    const assertCaptureAllowed = () => {
+      if (this.getLaunchOptions(id)?.privateCapture) {
+        this.thumbnails.delete(id);
+        throw new SessionStateError(
+          "private_capture",
+          "Saved thumbnails are disabled after a vault fill",
+          409,
+        );
+      }
+    };
+    assertCaptureAllowed();
+    if (session.status === "parked") {
+      const data = await readFile(this.store.path(`parked/${id}/thumbnail.jpg`));
+      assertCaptureAllowed();
+      return data;
+    }
     const cached = this.thumbnails.get(id);
     if (cached && Date.now() - cached.at < 5000) return cached.data;
     const pages = await session.cdpService.getAllPages();
     const page = pages[0];
     if (!page) throw new SessionStateError("no_page", "Session has no page", 404);
+    assertCaptureAllowed();
     const data = Buffer.from(await page.screenshot({ type: "jpeg", quality: 60 }));
+    // A vault fill may begin while the browser is producing this screenshot.
+    assertCaptureAllowed();
     this.thumbnails.set(id, { at: Date.now(), data });
     return data;
   }

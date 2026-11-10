@@ -73,6 +73,7 @@ function makeCdp(primary: boolean) {
     getDimensions: () => cdp.dimensions,
     getFingerprintData: () => identity,
     getCookies: vi.fn().mockResolvedValue(cookies),
+    getInstrumentationLogger: () => ({ setPrivateCapture: vi.fn() }),
     getAllPages: vi.fn(async () => cdp.pages),
     setDisconnectHandler: vi.fn(),
     startNewSession: vi.fn().mockImplementation(async (options) => {
@@ -170,6 +171,8 @@ describe("durable session parking", () => {
       });
     }
     const created = await service.startSession({
+      sessionId: "native-session",
+      credentials: {},
       compatibilityMode: "native",
       skipFingerprintInjection: true,
     });
@@ -183,6 +186,44 @@ describe("durable session parking", () => {
     );
   });
 
+  it("does not reuse or save thumbnails after private capture, including after resume", async () => {
+    const fixture = await setup();
+    const { service, browsers, store } = fixture;
+    const id = "private-thumbnail";
+    await service.startSession({ sessionId: id, credentials: {}, timezone: "Europe/Paris" });
+    const page = browsers[0].pages[0];
+    expect(await service.thumbnail(id)).toEqual(Buffer.from("jpeg-thumbnail"));
+    page.screenshot.mockClear();
+    service.protectSession(id);
+    await expect(service.thumbnail(id)).rejects.toMatchObject({ code: "private_capture" });
+    await service.parkSession(id);
+    expect(page.screenshot).not.toHaveBeenCalled();
+    expect(await exists(store.path(`parked/${id}/thumbnail.jpg`))).toBe(false);
+    expect(await store.read(`parked/${id}/meta.json`)).toMatchObject({
+      options: { privateCapture: true },
+    });
+    await service.resumeSession(id);
+    await expect(service.thumbnail(id)).rejects.toMatchObject({ code: "private_capture" });
+  });
+  it("discards a thumbnail that finishes after private capture begins", async () => {
+    const { service, browsers } = await setup();
+    const id = "private-thumbnail-race";
+    await service.startSession({ sessionId: id, credentials: {}, timezone: "Europe/Paris" });
+    let finish!: (value: Buffer) => void;
+    browsers[0].pages[0].screenshot.mockImplementationOnce(
+      () =>
+        new Promise<Buffer>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = service.thumbnail(id);
+    const rejected = expect(pending).rejects.toMatchObject({ code: "private_capture" });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    service.protectSession(id);
+    finish(Buffer.from("sensitive screenshot"));
+    await rejected;
+    await expect(service.thumbnail(id)).rejects.toMatchObject({ code: "private_capture" });
+  });
   it("persists encrypted cookies, tabs, launch identity, and profile data across a restart", async () => {
     const fixture = await setup();
     const { service, browsers, store } = fixture;

@@ -1,3 +1,4 @@
+import { isSensitiveSession } from "./privacy.js";
 import { createHash } from "node:crypto";
 import { DataError, DataRecords, sanitized, type DataActor, type DataRecord } from "./common.js";
 
@@ -36,6 +37,10 @@ export class SessionSearch {
     kind: string;
     expiresAt?: string;
   }) {
+    if (input.sessionId && isSensitiveSession(input.sessionId)) {
+      await this.remove(input.kind, input.sourceId);
+      return;
+    }
     const id = createHash("sha256").update(`${input.kind}:${input.sourceId}`).digest("hex");
     const now = new Date().toISOString();
     const clean = sanitized({ title: input.title, text: input.text }) as {
@@ -92,6 +97,8 @@ export class SessionSearch {
     const deadline = Date.now() + 5000;
     let truncated = false;
     for await (const document of this.records.iterate<SearchDocument>("search", actor)) {
+      // Apply to every source kind, including checkers registered by other plugins.
+      if (document.sessionId && isSensitiveSession(document.sessionId)) continue;
       if (Date.now() > deadline) {
         truncated = true;
         break;
@@ -111,6 +118,7 @@ export class SessionSearch {
         ))
       )
         continue;
+      if (document.sessionId && isSensitiveSession(document.sessionId)) continue;
 
       const start = Math.max(0, normalized.indexOf(terms[0]) - 80);
       matches.push({

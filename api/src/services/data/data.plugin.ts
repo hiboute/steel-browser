@@ -71,7 +71,7 @@ const plugin: FastifyPluginAsync = async (server) => {
   if (!access)
     throw new Error("Steel data features require the control/access plugin to be registered first");
   const records = new DataRecords(server.store, 30, (actor, id) => {
-    if (server.sessionService.getSession(id)) access.assertRead(actor, id);
+    access.assertRead(actor, id);
   });
   const diffs = new PageDiffService(records);
   const vault = new VaultService();
@@ -91,8 +91,7 @@ const plugin: FastifyPluginAsync = async (server) => {
   });
   const search = new SessionSearch(records, async (document, actor) => {
     try {
-      if (document.sessionId && server.sessionService.getSession(document.sessionId))
-        access.assertRead(actor, document.sessionId);
+      if (document.sessionId) access.assertRead(actor, document.sessionId);
       if (document.sourceKind === "artifact") await artifacts.get(document.sourceId, actor);
       else if (document.sourceKind === "snapshot") await diffs.get(document.sourceId, actor);
       else if (document.sourceKind === "extract")
@@ -108,8 +107,10 @@ const plugin: FastifyPluginAsync = async (server) => {
   });
   server.watcherService.setPageDiffs(async (page, record, sessionId) => {
     const actor: DataActor = {
-      id: record.client || "anonymous",
-      role: "agent",
+      // Client is attribution. Only ownerId is a verified principal; legacy
+      // definitions without one remain operator-owned background work.
+      id: record.ownerId || "system",
+      role: record.ownerId ? "agent" : "operator",
       authenticated: true,
     };
     const snapshot = await diffs.capture(page, sessionId, actor, record.pageDiff || {});
@@ -178,7 +179,28 @@ const plugin: FastifyPluginAsync = async (server) => {
       return result;
     },
   );
+  // A checkpoint branch has a new ID but inherits privateCapture. Reconcile
+  // retained sessions and mark launches before any onStarted recording hooks.
+  for (const session of server.sessionService.listSessions(true)) {
+    if (server.sessionService.getLaunchOptions(session.id)?.privateCapture) {
+      markSensitiveSession(session.id);
+      await server.store.write(`data/sensitive/${session.id}.json`, {
+        at: new Date().toISOString(),
+        reason: "private_capture",
+      });
+    }
+  }
   const unhookPrivacy = server.sessionService.hooks.add({
+    onAdmission: async (options) => {
+      if (options.sessionId && (options.privateCapture || isSensitiveSession(options.sessionId))) {
+        options.privateCapture = true;
+        markSensitiveSession(options.sessionId);
+        await server.store.write(`data/sensitive/${options.sessionId}.json`, {
+          at: new Date().toISOString(),
+          reason: "private_capture",
+        });
+      }
+    },
     onStarted: async (session) => {
       if (isSensitiveSession(session.id))
         session.cdpService.getInstrumentationLogger().setPrivateCapture?.();

@@ -287,13 +287,23 @@ export function AutomationPage({ session }: { session?: SessionDetails | null })
                   <div className="assertion-row" key={check.id}>
                     <span className="badge">{check.status}</span>
                     <span>{check.label}</span>
+                    {check.evidence?.type === "file" && (
+                      <span className="field-hint">
+                        {check.evidence.name} · {check.evidence.bytes.toLocaleString()} bytes ·{" "}
+                        {check.evidence.mime}
+                        <br />
+                        SHA-256: <code>{check.evidence.sha256}</code>
+                        <br />
+                        Available until {new Date(check.evidence.expiresAt).toLocaleString()}
+                      </span>
+                    )}
                     {check.evidence?.artifactId && (
                       <a
                         href={apiUrl(`/v1/workflow-evidence/${check.evidence.artifactId}`)}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Evidence ↗
+                        {check.evidence.type === "file" ? "Download verified file" : "Evidence ↗"}
                       </a>
                     )}
                   </div>

@@ -13,6 +13,10 @@ export class PlatformStore {
     this.key = secret ? createHash("sha256").update(secret).digest() : undefined;
   }
 
+  get encrypted(): boolean {
+    return Boolean(this.key);
+  }
+
   path(relative: string): string {
     const resolved = path.resolve(this.root, relative);
     if (resolved !== this.root && !resolved.startsWith(this.root + path.sep)) {

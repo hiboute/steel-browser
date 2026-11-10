@@ -163,6 +163,32 @@ describe("fenced leases", () => {
   });
 });
 describe("admission budgets", () => {
+  it("reloads the exact persisted policy after restart and accounts restored live sessions", async () => {
+    const policy = {
+      defaultMaxConcurrent: 3,
+      clients: { [agent.id]: { maxConcurrent: 1, weight: 2 } },
+      sites: { "https://owned.test": { maxConcurrent: 1 } },
+    };
+    const before = new BudgetService(store, true);
+    await before.configure(policy);
+    const after = new BudgetService(new PlatformStore(root), true);
+    await after.initialize();
+    expect(after.get().config).toEqual(policy);
+    for (const sessionId of ["restored", "waiting"])
+      after.register({
+        sessionId,
+        _principal: agent,
+        siteScope: "https://owned.test",
+        credentials: {},
+      });
+    after.acquired("restored");
+    expect(after.reason("waiting")).toBe("client_budget");
+    expect(after.metadata("waiting")).toEqual({ principal: agent.id, weight: 2 });
+    after.release("restored");
+    expect(after.canAcquire("waiting")).toBe(true);
+    expect(after.get().active).toEqual([]);
+    expect(after.get().sites["https://owned.test"]).toBe(0);
+  });
   it("requires trusted principals and atomically accounts client/site capacity", async () => {
     const unsafe = new BudgetService(store, false);
     await expect(

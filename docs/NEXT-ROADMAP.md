@@ -4,6 +4,30 @@ This is the next expansion after the deployed PR #7 roadmap. It is tracked in
 [homelab #626](https://github.com/hiboute/homelab/issues/626). The features below are
 approved scope; a listed feature is not a claim of implementation or deployment.
 
+## Implementation and live verification
+
+The expansion was implemented in
+[Steel PR #15](https://github.com/hiboute/steel-browser/pull/15), with continuity
+and worker recovery fixes in
+[PR #16](https://github.com/hiboute/steel-browser/pull/16). The companion MCP,
+diagnostics and deployment configuration are in
+[homelab PR #662](https://github.com/hiboute/homelab/pull/662), and the harness
+operator boundary is in
+[vertex-harness PR #37](https://github.com/hiboute/vertex-harness/pull/37).
+
+Live acceptance is tracked per feature in #626 and its linked issues. It uses
+owned fixtures, releases test browsers and preserves existing user resources.
+Production failures found by these checks require tested follow-up releases
+before the affected feature is marked complete. The deployment manifest in
+`homelab/vps/mcp-steel/release.json` records the promoted API, UI and worker
+digests, runtime revision, measured browser version and exact-image CI run.
+
+Safari host validation is skipped at the owner's request. No physical Android
+device is available, so mobile emulation and adapter validation do not establish
+hardware fidelity. Local authenticated UI flows and deployed asset verification
+are recorded separately from public browser interaction behind Cloudflare
+Access.
+
 ## Workstreams and feature issues
 
 - [Browser identity inspector](https://github.com/hiboute/homelab/issues/627) — identity

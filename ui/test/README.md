@@ -90,3 +90,10 @@ smoke. Test keys above are disposable local fixtures, never deployment credentia
 `live-smoke.mjs` also accepts `UI_TEST_OPERATOR_KEY` when its API uses authentication.
 Run the two suites sequentially so checkpoint branches and background watchers
 have predictable capacity.
+
+For focused site-profile acceptance, use the same isolated API/UI/fixture settings
+and operator credential, then run `node ui/test/site-profiles-smoke.mjs`. It creates
+one owned browser and site profile, verifies exact-origin validation, revisioned
+edits, stale-edit feedback, success-origin checks, conflicting launch settings,
+and deletion. The report and screenshots default to `steel-site-profiles-smoke`
+under the OS temporary directory. Do not point this fixture suite at production.

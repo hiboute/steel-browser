@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import puppeteer from "puppeteer-core";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { PlatformStore } from "../platform/store.js";
 import { DataRecords, type DataActor } from "./common.js";
 import { captureSource, groundFields } from "./grounding.js";
@@ -35,6 +35,7 @@ it.skipIf(!chrome)(
           void request.respond({
             status: 200,
             contentType: "text/html",
+            headers: { "Content-Security-Policy": "default-src 'none'; form-action 'none'" },
             body: '<html><head><title>Tea catalog</title></head><body><main><h1>Tea</h1><p id="price">Price: 12</p><p id="clock">10:00</p><input id="password" type="text"><p id="echo"></p></main></body></html>',
           }),
       );
@@ -49,15 +50,70 @@ it.skipIf(!chrome)(
         new DataRecords(new PlatformStore(path.join(root, "data"), "key")),
       );
       const options = { ignoreSelectors: ["#clock"], visual: true };
+      await page.$eval("#password", (element) => {
+        (element as HTMLInputElement).value = "fixture-sensitive-Alpha";
+      });
+      await page.$eval("#clock", (element) =>
+        (element as HTMLElement).style.setProperty("visibility", "visible", "important"),
+      );
       const before = await service.capture(page, "session", actor, options);
+      expect(
+        await page.$eval("#clock", (element) => ({
+          value: (element as HTMLElement).style.getPropertyValue("visibility"),
+          priority: (element as HTMLElement).style.getPropertyPriority("visibility"),
+        })),
+      ).toEqual({ value: "visible", priority: "important" });
+      await expect(
+        service.capture(page, "session", actor, { ...options, selector: "#missing" }),
+      ).rejects.toThrow("Snapshot selector not found");
+      expect(
+        await page.$eval("#password", (element) =>
+          (element as HTMLElement).style.getPropertyValue("visibility"),
+        ),
+      ).toBe("");
+      await page.$eval("#password", (element) => {
+        (element as HTMLInputElement).value = "fixture-sensitive-Beta";
+      });
       await page.$eval("#clock", (element) => {
         element.textContent = "11:00";
       });
+      const screenshot = page.screenshot.bind(page);
+      const screenshotSpy = vi.spyOn(page, "screenshot").mockImplementationOnce(async (options) => {
+        await page.evaluate(() => {
+          const input = document.createElement("input");
+          input.id = "dynamic-secret";
+          input.value = "dynamic-sensitive-value";
+          input.style.position = "fixed";
+          input.style.top = "0";
+          document.body.append(input);
+        });
+        expect(
+          await page.$eval("#dynamic-secret", (element) => getComputedStyle(element).visibility),
+        ).toBe("hidden");
+        return screenshot(options as never) as never;
+      });
       const noisy = await service.capture(page, "session", actor, options);
+      screenshotSpy.mockRestore();
+      expect(
+        await page.$eval("#dynamic-secret", (element) =>
+          (element as HTMLElement).style.getPropertyValue("visibility"),
+        ),
+      ).toBe("");
+      await page.$eval("#dynamic-secret", (element) => element.remove());
       expect(await service.compare(before.id, noisy.id, actor)).toMatchObject({
         changed: false,
         visual: { status: "unchanged" },
       });
+      await Promise.all([
+        service.capture(page, "session", actor, options),
+        service.capture(page, "session", actor, options),
+      ]);
+      expect(
+        await page.$eval("#clock", (element) => ({
+          value: (element as HTMLElement).style.getPropertyValue("visibility"),
+          priority: (element as HTMLElement).style.getPropertyPriority("visibility"),
+        })),
+      ).toEqual({ value: "visible", priority: "important" });
       await page.$eval("#price", (element) => {
         element.textContent = "Price: 14";
       });

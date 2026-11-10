@@ -1,4 +1,4 @@
-import type { Page, ElementHandle } from "puppeteer-core";
+import type { Page, JSHandle } from "puppeteer-core";
 import { createHash } from "node:crypto";
 import * as mupdf from "mupdf";
 import { DataError, DataRecords, type DataActor, type DataRecord } from "./common.js";
@@ -23,8 +23,26 @@ export interface PageSnapshot extends DataRecord {
   digest: string;
 }
 export class PageDiffService {
+  private captures = new WeakMap<Page, Promise<void>>();
   constructor(private records: DataRecords) {}
   async capture(page: Page, sessionId: string, actor: DataActor, options: SnapshotOptions) {
+    const previous = this.captures.get(page) ?? Promise.resolve();
+    const pending = Promise.withResolvers<void>();
+    this.captures.set(page, pending.promise);
+    await previous;
+    try {
+      return await this.captureMasked(page, sessionId, actor, options);
+    } finally {
+      pending.resolve();
+      if (this.captures.get(page) === pending.promise) this.captures.delete(page);
+    }
+  }
+  private async captureMasked(
+    page: Page,
+    sessionId: string,
+    actor: DataActor,
+    options: SnapshotOptions,
+  ) {
     const assertImageAllowed = () => {
       if (options.visual && isSensitiveSession(sessionId))
         throw new DataError(
@@ -34,10 +52,16 @@ export class PageDiffService {
         );
     };
     assertImageAllowed();
-    let style: ElementHandle<HTMLStyleElement> | undefined;
+    let masked:
+      | JSHandle<{
+          entries: Map<HTMLElement | SVGElement, { value: string; priority: string }>;
+          observer: MutationObserver;
+          failed: boolean;
+        }>
+      | undefined;
     const selector = options.selector || "body";
     try {
-      // CSS.escape cannot escape a selector; validate selectors in the browser before concatenating.
+      // Validate all selectors before changing page state.
       const ignored = [
         "input",
         "textarea",
@@ -51,10 +75,58 @@ export class PageDiffService {
         },
         [selector, ...ignored],
       );
-      // Visibility preserves layout and excludes secret values from screenshots. Text capture separately removes them.
-      style = await page.addStyleTag({
-        content: ignored.map((item) => `${item}{visibility:hidden!important}`).join("\n"),
-      });
+      // DOM style properties work under restrictive style-src CSP without bypassing
+      // that policy. Keep exact handles and previous priorities for restoration.
+      if (options.visual) {
+        masked = await page.evaluateHandle((selectors) => {
+          const entries = new Map<HTMLElement | SVGElement, { value: string; priority: string }>();
+          const state = {
+            entries,
+            observer: undefined as unknown as MutationObserver,
+            failed: false,
+          };
+          const apply = () => {
+            const elements = new Set<HTMLElement | SVGElement>();
+            for (const selector of selectors) {
+              for (const element of document.querySelectorAll(selector)) {
+                if (element instanceof HTMLElement || element instanceof SVGElement)
+                  elements.add(element);
+                if (elements.size > 5000) throw new Error("Snapshot masking limit exceeded");
+              }
+            }
+            if (
+              entries.size + [...elements].filter((element) => !entries.has(element)).length >
+              5000
+            )
+              throw new Error("Snapshot masking limit exceeded");
+            for (const element of elements) {
+              if (!entries.has(element))
+                entries.set(element, {
+                  value: element.style.getPropertyValue("visibility"),
+                  priority: element.style.getPropertyPriority("visibility"),
+                });
+              if (
+                element.style.getPropertyValue("visibility") !== "hidden" ||
+                element.style.getPropertyPriority("visibility") !== "important"
+              )
+                element.style.setProperty("visibility", "hidden", "important");
+            }
+          };
+          apply();
+          // Preserve masking for controls and matching attributes added while
+          // screenshot capture is awaiting the renderer. Bounds fail closed.
+          state.observer = new MutationObserver(() => {
+            try {
+              apply();
+            } catch {
+              state.failed = true;
+              state.observer.disconnect();
+            }
+          });
+          state.observer.observe(document, { subtree: true, childList: true, attributes: true });
+          return state;
+        }, ignored);
+      }
       const source = await captureSource(page, 100_000, { selector, ignoreSelectors: ignored });
       let text = source.text
         .normalize("NFKC")
@@ -66,6 +138,12 @@ export class PageDiffService {
       const image = options.visual
         ? Buffer.from(await page.screenshot({ type: "png", fullPage: false })).toString("base64")
         : undefined;
+      if (masked && (await masked.evaluate((state) => state.failed)))
+        throw new DataError(
+          "masking_failed",
+          "Page changed beyond the snapshot masking limit",
+          409,
+        );
       assertImageAllowed();
       if (image && image.length > 8_000_000)
         throw new DataError("image_too_large", "Snapshot image exceeds limit");
@@ -86,7 +164,21 @@ export class PageDiffService {
       );
       return this.metadata(record);
     } finally {
-      await style?.evaluate((element) => element.remove()).catch(() => undefined);
+      await masked
+        ?.evaluate(({ entries, observer }) => {
+          observer.disconnect();
+          for (const [element, { value, priority }] of entries) {
+            if (
+              element.style.getPropertyValue("visibility") !== "hidden" ||
+              element.style.getPropertyPriority("visibility") !== "important"
+            )
+              continue;
+            if (value) element.style.setProperty("visibility", value, priority);
+            else element.style.removeProperty("visibility");
+          }
+        })
+        .catch(() => undefined);
+      await masked?.dispose().catch(() => undefined);
     }
   }
   metadata(record: PageSnapshot) {

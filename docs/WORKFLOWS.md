@@ -16,7 +16,7 @@ compiled steps and version even when the procedure changes or is deleted.
 Inputs use JSON Schema. An exact `{"$input":"customer.name"}` object substitutes
 the corresponding typed input; strings are not evaluated or interpolated as
 code. JSON schema validation executes in a bounded worker. Procedures can contain
-command requests, read-only assertions, or approved `vault_fill` references.
+command requests, read-only browser/file assertions, or approved `vault_fill` references.
 Selected command actions can be saved through `/procedures/from-actions`;
 arbitrary timeline text and raw CDP records are not automatically executable.
 
@@ -112,6 +112,46 @@ an evidence/sensitivity policy; without it, screenshots are not saved. Vault-mar
 sensitive sessions suppress persisted screenshots and receipt values. Live CDP
 and viewers inherently retain access to page content. Evidence downloads have
 `Cache-Control: private, no-store`.
+
+### Verified downloaded files
+
+Process an owned download with `POST /v1/sessions/:id/artifacts/process` first, then
+use its returned artifact ID and SHA-256 in an `assert_file` step. The source must
+belong to the same principal and session as the run. Typed procedure inputs can
+supply the artifact ID, hash and optional exact byte count:
+
+```json
+{
+  "id": "verify-report",
+  "kind": "assert_file",
+  "assertion": {
+    "id": "report",
+    "label": "Downloaded report matches the expected file",
+    "artifactId": { "$input": "artifactId" },
+    "sha256": { "$input": "sha256" },
+    "bytes": { "$input": "bytes" }
+  }
+}
+```
+
+The service rereads and hashes actual bytes through a bounded, contained file
+handle. Changed files or mismatched hash/size fail the check; missing, oversized,
+foreign or private files remain unavailable and cannot verify completion. Files
+up to 8 MiB are copied into encrypted workflow evidence (`STEEL_DATA_KEY` is
+required). The receipt includes safe filename, MIME type, bytes and SHA-256;
+contents and source paths are never included in the receipt. Unsupported download
+MIME types are served as `application/octet-stream` with `nosniff`.
+
+`GET /v1/workflow-evidence/:artifactId` downloads the exact retained bytes as an
+attachment after verifying their hash and size again. Workshop offers **Download
+verified file** beside this metadata; MCP `browser_workflows` receipt results
+provide the same evidence ID. Only the original owner can download file evidence,
+including when other operators can inspect the receipt. Privacy is rechecked
+after capture and persistence and before download; vault-marked sensitive sessions
+cannot persist or retrieve it. The encrypted copy survives source deletion and
+expires after 30 days. Its expiry is shown in the receipt; expired downloads are
+denied immediately and encrypted copies are removed on startup or the hourly sweep. File assertions are excluded from isolated
+regression replay because a fresh candidate cannot access another session's files.
 
 ## Schedules, webhooks and watcher triggers
 

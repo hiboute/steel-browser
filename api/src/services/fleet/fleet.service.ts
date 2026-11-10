@@ -151,5 +151,5 @@ export class FleetService {
       await this.save(); return structuredClone(command);
     });
   }
-  async close() { await this.pending; await this.store.flush(); }
+  async close() { await this.pending.catch(() => undefined); await this.store.flush(); }
 }

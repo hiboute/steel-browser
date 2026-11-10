@@ -5,11 +5,17 @@ MCP, harness and deployment work. The initial architecture draft targeted fork
 main `ef515aa`; the release incorporates main `68822fe`, including the NordVPN
 TLS fix. PR #7 merged as `a050700d36b492146f25f01e5ce6e74d44a6da44`; PR #12 fixes
 one-time sessionStorage restoration and PR #13 handles HTTP/2 response phrases
-in guarded browser jobs. The runtime release is
+in guarded browser jobs. The original roadmap release was
 `c3159404943f612425039513b4dde7c6b43f8443`. The specification below is
 retained as the accepted scope. The operator-facing contract and configuration
 are in [SESSION-PLATFORM.md](SESSION-PLATFORM.md) and
 [MULTI_SESSION.md](../MULTI_SESSION.md).
+
+The subsequent 35-feature expansion is tracked in
+[NEXT-ROADMAP.md](NEXT-ROADMAP.md) and
+[homelab #626](https://github.com/hiboute/homelab/issues/626). Its deployment
+record supersedes the original release versions and authentication configuration
+recorded below.
 
 ## Implementation status
 
@@ -122,8 +128,10 @@ The owner explicitly approved GitHub's combined Actions PR creation/review-appro
 setting in both repositories. Default token permissions remain read-only, and
 these workflows only create/update review PRs; they never approve or merge them.
 
-No API token on steel-api was selected. Existing authentication/network controls
-remain the access boundary; `X-Steel-Client` is caller attribution, not authentication.
+The original release used the existing authentication/network boundary without
+an API token. The subsequent expansion adds scoped API credentials and distinct
+agent/operator proxy proofs; see [NEXT-PLATFORM.md](NEXT-PLATFORM.md).
+`X-Steel-Client` remains caller attribution, not authentication.
 
 ## Features picked
 

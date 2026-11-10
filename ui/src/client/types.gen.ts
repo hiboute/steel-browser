@@ -7989,6 +7989,29 @@ export type CreateProcedureData = {
         }
       | {
           id: string;
+          kind: "assert_file";
+          assertion: {
+            id: string;
+            label: string;
+            artifactId:
+              | string
+              | {
+                  $input: string;
+                };
+            sha256:
+              | string
+              | {
+                  $input: string;
+                };
+            bytes?:
+              | number
+              | {
+                  $input: string;
+                };
+          };
+        }
+      | {
+          id: string;
           kind: "vault_fill";
           reference: string;
           selector: string;
@@ -8122,6 +8145,29 @@ export type UpdateProcedureData = {
             operator: "equals" | "contains" | "exists" | "not_exists";
             expected?: unknown;
             evidence?: "value" | "screenshot";
+          };
+        }
+      | {
+          id: string;
+          kind: "assert_file";
+          assertion: {
+            id: string;
+            label: string;
+            artifactId:
+              | string
+              | {
+                  $input: string;
+                };
+            sha256:
+              | string
+              | {
+                  $input: string;
+                };
+            bytes?:
+              | number
+              | {
+                  $input: string;
+                };
           };
         }
       | {

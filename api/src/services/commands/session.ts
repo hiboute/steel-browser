@@ -1,4 +1,4 @@
-import type { Browser } from "puppeteer-core";
+import type { Browser, Page } from "puppeteer-core";
 import type { Command, CommandRequest } from "./commands.js";
 import type { Dialog } from "./dialogs.js";
 import { DEFAULT_RECORD_LIMITS, Records, type Execution, type RecordLimits } from "./records.js";
@@ -10,6 +10,7 @@ export interface EngineHost extends BrowserHost {
   filesRoot(): string;
   released(id: string): boolean;
   quickActionsDone(): Promise<void>;
+  beforeMutation?(id: string, command: Command, page?: Page): Promise<void>;
 }
 
 export interface EngineLimits extends RecordLimits {

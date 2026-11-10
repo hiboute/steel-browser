@@ -10,6 +10,10 @@ export class SessionCommands {
   constructor(
     private sessions: SessionService,
     private files: FileService,
+    private policy?: {
+      capture(id: string): () => void;
+      interaction(id: string, url: string): Promise<{ actionDelayMs: number } | undefined>;
+    },
   ) {}
   get(id: string): CommandEngine {
     const session = this.sessions.getSession(id);
@@ -17,7 +21,17 @@ export class SessionCommands {
       throw new AccessError("session_not_live", "Commands require a live CDP browser", 409);
     let engine = this.engines.get(id);
     if (engine) return engine;
+    const check = this.policy?.capture(id);
     engine = new CommandEngine({
+      beforeMutation: async (_id, _command, page) => {
+        check?.();
+        const interaction = page ? await this.policy?.interaction(id, page.url()) : undefined;
+        if (interaction?.actionDelayMs)
+          await new Promise<void>((r) =>
+            setTimeout(r, Math.min(5000, Math.max(0, interaction.actionDelayMs))),
+          );
+        check?.();
+      },
       browser: () => session.cdpService.getBrowserInstance(),
       waitForPageSetup: (p) => session.cdpService.waitForPageSetup(p),
       endSession: async () => {

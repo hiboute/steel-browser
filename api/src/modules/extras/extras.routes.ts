@@ -172,6 +172,7 @@ export default async function extrasRoutes(server: FastifyInstance) {
           name,
           WarmSettings.parse(request.body),
           request.steelClient,
+          request.steelPrincipal,
         );
         await server.audit.log("warm.updated", { client: request.steelClient, subject: name });
         return result;
@@ -234,6 +235,7 @@ export default async function extrasRoutes(server: FastifyInstance) {
         const watcher = await server.watcherService.create(
           WatcherSettings.parse(request.body),
           request.steelClient,
+          request.steelPrincipal,
         );
         await server.audit.log("watcher.created", {
           client: request.steelClient,

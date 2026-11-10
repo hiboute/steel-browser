@@ -46,6 +46,36 @@ export const RunSessionOptions = CreateSession.pick({
 const safeCommands = new Set(["snapshot", "find", "get", "is", "describe", "status"]);
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export class RunService {
+  private outputFilters = new Set<
+    (sessionId: string, output: unknown, step: RunStep) => unknown | Promise<unknown>
+  >();
+  registerOutputFilter(
+    filter: (sessionId: string, output: unknown, step: RunStep) => unknown | Promise<unknown>,
+  ) {
+    this.outputFilters.add(filter);
+    return () => this.outputFilters.delete(filter);
+  }
+  private async safeOutput(sessionId: string, step: RunStep, output: unknown) {
+    if (step.kind === "commands" && this.sessions.getLaunchOptions?.(sessionId)?.privateCapture) {
+      const body = output as any;
+      output = {
+        privateCapture: true,
+        execution: body?.execution
+          ? { id: body.execution.id, state: body.execution.state }
+          : undefined,
+        results: Array.isArray(body?.results)
+          ? body.results.map((r: any) => ({
+              command: r.command,
+              ok: r.ok,
+              effect: r.effect,
+              error: r.error ? { code: r.error.code } : undefined,
+            }))
+          : undefined,
+      };
+    }
+    for (const filter of this.outputFilters) output = await filter(sessionId, output, step);
+    return output;
+  }
   private delegated = new Map<string, string>();
   pauseError(reason: string) {
     return new RunPauseError(reason);
@@ -134,7 +164,7 @@ export class RunService {
       .filter((r) => r.ownerId === actor.id || actor.role === "operator")
       .map((r) => this.public(r));
   }
-  async initialize() {
+  async initialize(autoStart = true) {
     for (const f of await this.store.list("runs")) {
       if (!/^[\w-]+\.json$/.test(f)) continue;
       const r = await this.store.read<Run>(`runs/${f}`);
@@ -155,6 +185,9 @@ export class RunService {
         await this.save(r);
       }
     }
+    if (autoStart) this.startRecovered();
+  }
+  startRecovered() {
     for (const r of this.records.values()) if (r.status === "queued") this.launch(r);
   }
   async create(input: RunInput, actor: Actor) {
@@ -221,7 +254,8 @@ export class RunService {
         id: randomUUID(),
         ownerId: actor.id,
         actor: { ...actor },
-        status: "queued",
+        status: controlToken && input.sessionId ? "paused" : "queued",
+        pauseReason: controlToken && input.sessionId ? "control_delegation_pending" : undefined,
         revision: 0,
         cursor: 0,
         results: steps.map((s) => ({ stepId: s.id, status: "pending", attempts: 0 })),
@@ -235,6 +269,9 @@ export class RunService {
           mode: "agent",
         });
         this.delegated.set(run.id, delegated.token);
+        run.status = "queued";
+        delete run.pauseReason;
+        await this.save(run);
       }
       this.launch(run);
       return this.public(run);
@@ -333,17 +370,12 @@ export class RunService {
         await this.control.registerResource(created.id, run.ownerId);
         await this.save(run);
       }
-      if (this.sessions.isParked(run.sessionId))
-        await this.sessions.resumeSession(run.sessionId, { signal });
-      signal.throwIfAborted();
-      const session = this.sessions.getSession(run.sessionId);
-      if (!session || session.status !== "live") throw new RunPauseError("session_unavailable");
       token = this.delegated.get(run.id);
       this.delegated.delete(run.id);
-      if (token) this.control.assert(session.id, run.actor, token);
+      if (token) this.control.assert(run.sessionId, run.actor, token);
       else {
-        if (this.control.get(session.id)) throw new RunPauseError("control_required");
-        ({ token } = await this.control.acquire(session.id, run.actor, {
+        if (this.control.get(run.sessionId)) throw new RunPauseError("control_required");
+        ({ token } = await this.control.acquire(run.sessionId, run.actor, {
           mode: "agent",
           ttlMs: 60000,
         }));
@@ -351,11 +383,17 @@ export class RunService {
       renewal = setInterval(
         () =>
           void this.control
-            .renew(session.id, run.actor, token!, 60000)
+            .renew(run.sessionId!, run.actor, token!, 60000)
             .catch(() => this.active.get(run.id)?.abort.abort(new RunPauseError("control_lost"))),
         20000,
       );
       renewal.unref();
+      if (this.sessions.isParked(run.sessionId))
+        await this.sessions.resumeSession(run.sessionId, { signal });
+      signal.throwIfAborted();
+      this.control.assert(run.sessionId, run.actor, token);
+      const session = this.sessions.getSession(run.sessionId);
+      if (!session || session.status !== "live") throw new RunPauseError("session_unavailable");
       hold = this.sessions.holdActivity(session.id);
       run.status = "running";
       delete run.pauseReason;
@@ -408,14 +446,14 @@ export class RunService {
           signal.throwIfAborted();
           if (outcome.status === "paused") {
             result.status = "paused";
-            result.output = outcome.output;
+            result.output = await this.safeOutput(session.id, step, outcome.output);
             run.status = "paused";
             run.pauseReason = outcome.reason ?? "input_required";
             await this.save(run);
             return;
           }
           result.status = "succeeded";
-          result.output = outcome.output;
+          result.output = await this.safeOutput(session.id, step, outcome.output);
           result.finishedAt = new Date().toISOString();
           run.cursor++;
           await this.save(run);

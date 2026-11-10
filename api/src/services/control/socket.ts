@@ -92,5 +92,7 @@ export async function guardedCdp(
     });
     client.on("error", close);
     upstream.on("error", close);
+    // Activity observation pauses the upgrade socket; unlike http-proxy, ws does not resume it.
+    socket.resume();
   });
 }

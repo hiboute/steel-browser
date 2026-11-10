@@ -34,6 +34,17 @@ async function setup() {
   app.get("/v1/sessions/:id/test", async () => ({ read: true }));
   app.post("/v1/sessions", async () => ({ created: true }));
   app.get("/v1/search", async () => ({ results: [] }));
+  app.get("/v1/sessions/debug", async () => ({ primary: true }));
+  app.get("/v1/json/list", async () => ({ primary: true }));
+  app.get("/v1/pool", async () => ({
+    queue: [
+      { sessionId: "s", client: "agent" },
+      { sessionId: "other", client: "stranger" },
+    ],
+    slots: [
+      { index: 0, sessionId: "other", sessionName: "private name", state: "live", primary: true },
+    ],
+  }));
   app.get("/v1/health", async () => ({ status: "ok" }));
   await app.register(plugin);
   await app.ready();
@@ -124,4 +135,13 @@ describe("global route fencing", () => {
       token: expect.any(String),
     });
   });
+});
+
+it("binds legacy primary reads and hides other principals' queue and slot identity", async () => {
+  const app = await setup();
+  for (const url of ["/v1/sessions/debug", "/v1/json/list"])
+    expect((await app.inject({ url, headers: auth })).statusCode).toBe(403);
+  const pool = (await app.inject({ url: "/v1/pool", headers: auth })).json();
+  expect(pool.queue).toEqual([{ sessionId: "s", client: "agent" }]);
+  expect(pool.slots).toEqual([{ index: 0, sessionId: null, state: "live", primary: true }]);
 });

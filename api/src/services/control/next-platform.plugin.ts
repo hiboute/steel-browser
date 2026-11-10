@@ -1,3 +1,6 @@
+import path from "node:path";
+import { stat } from "node:fs/promises";
+import { browserProfilesDir, BROWSER_PROFILE_NAME } from "../session.service.js";
 import fp from "fastify-plugin";
 import type { FastifyPluginAsync } from "fastify";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -28,7 +31,20 @@ const plugin: FastifyPluginAsync = async (server) => {
   const context = new AsyncLocalStorage<Actor>();
   const publish = (type: string, data: unknown, id?: string) =>
     server.events.publish(type, data, id);
-  const commands = new SessionCommands(server.sessionService, server.fileService);
+  const commands = new SessionCommands(server.sessionService, server.fileService, {
+    capture: (id) => {
+      const generation = control.get(id)?.generation;
+      return () => {
+        if (generation === undefined || !control.isGenerationCurrent(id, generation))
+          throw new AccessError(
+            "control_required",
+            "Command control has expired or transferred",
+            409,
+          );
+      };
+    },
+    interaction: async (id, url) => (server as any).identity?.interactionForSession(id, url),
+  });
   let runs: RunService;
   const control = new OwnershipService(server.store, async (id, lease) => {
     commands.reset(id);
@@ -86,7 +102,18 @@ const plugin: FastifyPluginAsync = async (server) => {
     const path = request.url.split("?", 1)[0];
     const write = !["GET", "HEAD", "OPTIONS"].includes(request.method);
     const match = /^\/v1\/sessions\/([^/]+)(?:\/|$)/.exec(path);
-    const reserved = new Set(["pool", "by-name", "release", "cast", "debug", "live", "stream"]);
+    const reserved = new Set([
+      "pool",
+      "by-name",
+      "release",
+      "cast",
+      "debug",
+      "live",
+      "stream",
+      "scrape",
+      "screenshot",
+      "pdf",
+    ]);
     const body = request.body as Record<string, unknown> | undefined;
     const query = request.query as Record<string, unknown> | undefined;
     let id =
@@ -107,6 +134,9 @@ const plugin: FastifyPluginAsync = async (server) => {
         );
       if (
         (request.method === "POST" && /^\/v1\/(scrape|screenshot|pdf|search)$/.test(path)) ||
+        /^\/v1\/sessions\/(debug|cast|stream|live|scrape|screenshot|pdf)$/.test(path) ||
+        /^\/(?:v1\/)?(?:json|devtools)(?:\/|$)/.test(path) ||
+        (path === "/v1/events" && write) ||
         path.startsWith("/selenium/wd/")
       )
         id ??= server.sessionService.activeSession.id;
@@ -123,6 +153,31 @@ const plugin: FastifyPluginAsync = async (server) => {
           "operator_required",
           "Global browser history requires operator access",
         );
+      const actor = request.steelPrincipal;
+      if (actor && actor.role !== "operator") {
+        if (write && (/^\/v1\/extensions(?:\/|$)/.test(path) || path === "/selenium/wd/session"))
+          access.operator(actor);
+        const profile = /^\/v1\/browser-profiles\/([^/]+)/.exec(path);
+        if (profile) access.assertRead(actor, `profile:${decodeURIComponent(profile[1])}`);
+        const warm = /^\/v1\/warm\/([^/]+)/.exec(path);
+        if (warm) {
+          const record = server.warmService
+            ?.list()
+            .find((r) => r.name === decodeURIComponent(warm[1]));
+          if (record && record.ownerId !== actor.id)
+            throw new AccessError("warm_denied", "Warm browser belongs to another principal");
+          if (record && write && server.sessionService.getSession(record.sessionId))
+            access.authorizeSession(request, record.sessionId, true);
+        }
+        const watcher = /^\/v1\/watchers\/([^/]+)/.exec(path);
+        if (watcher) {
+          const record = server.watcherService?.get(decodeURIComponent(watcher[1]));
+          if (record?.ownerId !== actor.id)
+            throw new AccessError("watcher_denied", "Watcher belongs to another principal");
+        }
+        if (path === "/v1/files" && !id)
+          throw new AccessError("session_filter_required", "Select one authorized session");
+      }
       if (path === "/v1/events" && request.steelPrincipal?.role !== "operator" && !id)
         throw new AccessError("session_filter_required", "Subscribe to one authorized session");
     } catch (error) {
@@ -137,6 +192,23 @@ const plugin: FastifyPluginAsync = async (server) => {
     if (request.steelPrincipal?.role === "operator" || !payload || typeof payload !== "object")
       return payload;
     const p = payload as any;
+    if (Array.isArray(p.profiles))
+      p.profiles = p.profiles.filter((r: any) =>
+        control.canRead(`profile:${r.name}`, request.steelPrincipal),
+      );
+    for (const collection of ["warm", "watchers"])
+      if (Array.isArray(p[collection]))
+        p[collection] = p[collection].filter((r: any) => r.ownerId === request.steelPrincipal?.id);
+    if (request.url.split("?", 1)[0] === "/v1/pool") {
+      if (Array.isArray(p.queue))
+        p.queue = p.queue.filter((r: any) => control.canRead(r.sessionId, request.steelPrincipal));
+      if (Array.isArray(p.slots))
+        p.slots = p.slots.map((s: any) =>
+          s.sessionId && !control.canRead(s.sessionId, request.steelPrincipal)
+            ? { index: s.index, primary: s.primary, state: s.state, sessionId: null }
+            : s,
+        );
+    }
     if (Array.isArray(p.sessions))
       p.sessions = p.sessions.filter((s: any) => control.canRead(s.id, request.steelPrincipal));
     if (
@@ -160,8 +232,39 @@ const plugin: FastifyPluginAsync = async (server) => {
         role: "operator",
         authenticated: true,
       };
+      if (
+        options._principal.role !== "operator" &&
+        (options.userDataDir || options.extra || options.logSinkUrl || options.caCertificates)
+      )
+        throw new AccessError(
+          "operator_options_required",
+          "Raw profile paths and launch/runtime hooks require operator authorization",
+        );
     },
     onAdmission: async (options) => {
+      if (options.browserProfile) {
+        const name = options.browserProfile;
+        if (!BROWSER_PROFILE_NAME.test(name))
+          throw new AccessError("invalid_profile", "Invalid profile name", 400);
+        const key = `profile:${name}`,
+          actor = options._principal!;
+        if (control.owner(key)) access.assertRead(actor, key);
+        else {
+          const exists = await stat(path.join(browserProfilesDir(), name))
+            .then(() => true)
+            .catch((e: any) => {
+              if (e.code === "ENOENT") return false;
+              throw e;
+            });
+          if (exists && actor.role !== "operator")
+            throw new AccessError(
+              "profile_owner_required",
+              "An operator must assign this existing profile before agent access",
+              409,
+            );
+          await control.registerResource(key, actor.id);
+        }
+      }
       budgets.register(options);
       await control.registerResource(options.sessionId!, options._principal?.id ?? "system");
     },
@@ -207,7 +310,7 @@ const plugin: FastifyPluginAsync = async (server) => {
   sweep.unref();
   // Kind providers register before onReady; restart recovery can then classify custom steps correctly.
   server.addHook("onReady", async () => {
-    await runs.initialize();
+    await runs.initialize(false);
     await checkpoints.sweep();
   });
   server.addHook("preClose", async () => {

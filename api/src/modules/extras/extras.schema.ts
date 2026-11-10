@@ -61,6 +61,8 @@ export type WarmInput = z.infer<typeof WarmSettings>;
 export const WarmDetails = WarmSettings.extend({
   name: ExtensionName,
   client: z.string().max(128).optional(),
+  ownerId: z.string().max(128).optional(),
+  ownerAuthenticated: z.boolean().optional(),
   sessionId: z.string().uuid(),
   status: z.enum(["disabled", "waiting", "starting", "live", "error"]),
   lastStartedAt: z.string().optional(),
@@ -159,6 +161,8 @@ export type WatcherRunDetails = z.infer<typeof WatcherRun>;
 export const WatcherDetails = WatcherSettings.extend({
   id: z.string().uuid(),
   client: z.string().max(128).optional(),
+  ownerId: z.string().max(128).optional(),
+  ownerAuthenticated: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   state: z.object({

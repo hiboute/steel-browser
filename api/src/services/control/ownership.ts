@@ -246,8 +246,24 @@ export class OwnershipService {
       throw new AccessError("stale_controller", "Control has transferred", 409);
   }
   async expire() {
-    for (const [id, r] of this.resources)
-      if (r.lease && Date.parse(r.lease.expiresAt) <= Date.now()) await this.invalidate(id);
+    for (const id of this.resources.keys())
+      await this.serial(id, async () => {
+        const r = this.resources.get(id)!;
+        if (!r.lease || Date.parse(r.lease.expiresAt) > Date.now()) return;
+        r.generation++;
+        delete r.lease;
+        delete r.digest;
+        await this.save();
+        await this.changed(id, null);
+      });
+  }
+  async assignResource(id: string, ownerId: string) {
+    return this.serial(id, async () => {
+      const previous = this.resources.get(id);
+      this.resources.set(id, { ownerId, generation: (previous?.generation ?? 0) + 1 });
+      await this.save();
+      await this.changed(id, null);
+    });
   }
   async close() {
     await Promise.allSettled([...this.pending.values()]);

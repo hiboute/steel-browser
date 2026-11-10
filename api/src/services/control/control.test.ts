@@ -196,3 +196,23 @@ describe("admission budgets", () => {
     expect(b.canAcquire("b")).toBe(true);
   });
 });
+
+it("does not expire a new lease queued ahead of the expiry sweep", async () => {
+  vi.useFakeTimers();
+  await control.acquire("s", agent, { mode: "agent", ttlMs: 1000 });
+  await vi.advanceTimersByTimeAsync(1001);
+  const next = control.acquire("s", agent, { mode: "agent" });
+  const expiry = control.expire();
+  const issued = await next;
+  await expiry;
+  expect(() => control.assert("s", agent, issued.token)).not.toThrow();
+});
+it("observer tickets cannot become CDP control credentials", () => {
+  const ticket = control.issueObserverTicket("s", agent);
+  const credential = control.consumeTicket(ticket.ticket, "s", "cast");
+  expect(credential.observer).toBe(true);
+  expect(() => control.assert("s", agent, credential.token)).toThrow();
+  expect(() =>
+    control.consumeTicket(control.issueObserverTicket("s", agent).ticket, "s", "cdp"),
+  ).toThrow();
+});

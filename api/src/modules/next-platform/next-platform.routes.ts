@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { CreateSession } from "../sessions/sessions.schema.js";
+import { BROWSER_PROFILE_NAME } from "../../services/session.service.js";
 import { AccessError } from "../../services/control/access.js";
 const lease = z.object({
   mode: z.enum(["human", "agent"]),
@@ -76,6 +77,24 @@ export default async function routes(server: FastifyInstance) {
       return server.control.issueObserverTicket(sid(req), server.access.actor(req));
     }
     return server.control.issueTicket(sid(req), server.access.actor(req), token(req), body.channel);
+  });
+  route("PUT", "/browser-profiles/:id/owner", "assign_browser_profile_owner", async (req) => {
+    server.access.operator(server.access.actor(req));
+    const name = sid(req);
+    if (!BROWSER_PROFILE_NAME.test(name))
+      throw new AccessError("invalid_profile", "Invalid profile name", 400);
+    if (server.sessionService.profileHolder(name))
+      throw new AccessError(
+        "profile_busy",
+        "Release the saved browser before assigning ownership",
+        409,
+      );
+    const { ownerId } = z
+      .object({ ownerId: z.string().min(1).max(128) })
+      .strict()
+      .parse(req.body);
+    await server.control.assignResource(`profile:${name}`, ownerId);
+    return { name, ownerId };
   });
   route("GET", "/runs", "list_task_runs", (req) => ({
     runs: server.runs.list(server.access.actor(req)),

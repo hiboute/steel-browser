@@ -207,3 +207,86 @@ describe("durable task runs", () => {
     expect((runs.get(r.id, actor).metadata!.nested as any).approved).toBe(false);
   });
 });
+
+it("defers recovered execution until all extension services are ready", async () => {
+  let ready = false;
+  const execute = vi.fn(async () => {
+    expect(ready).toBe(true);
+    return { status: "succeeded" as const };
+  });
+  runs.registerKind("test", { validate: (x) => x, replay: "safe", execute });
+  const now = new Date().toISOString();
+  await store.write("runs/recover.json", {
+    id: "recover",
+    sessionId: "s",
+    ownerId: actor.id,
+    actor,
+    status: "queued",
+    revision: 1,
+    cursor: 0,
+    steps: [step],
+    results: [{ stepId: "one", status: "pending", attempts: 0 }],
+    createdAt: now,
+    updatedAt: now,
+  });
+  await runs.initialize(false);
+  await new Promise((r) => setTimeout(r, 10));
+  expect(execute).not.toHaveBeenCalled();
+  ready = true;
+  runs.startRecovered();
+  await settled("recover", "completed");
+});
+it("does not launch a parked browser held by a human", async () => {
+  sessions.isParked = () => true;
+  sessions.resumeSession = vi.fn();
+  await control.acquire("s", actor, { mode: "human" });
+  runs.registerKind("test", {
+    validate: (x) => x,
+    replay: "safe",
+    execute: async () => ({ status: "succeeded" }),
+  });
+  const r = await runs.create({ sessionId: "s", steps: [step] }, actor);
+  await settled(r.id, "paused");
+  expect(sessions.resumeSession).not.toHaveBeenCalled();
+  expect(runs.get(r.id, actor).pauseReason).toBe("control_required");
+});
+it("never journals sensitive command output after vault protection", async () => {
+  sessions.getLaunchOptions = () => ({ privateCapture: true });
+  commands.get = () => ({
+    handle: async () => ({
+      status: 200,
+      body: {
+        execution: { state: "completed", id: "execution" },
+        results: [
+          { ok: true, command: "snapshot", value: "reflected-vault-value", effect: "none" },
+        ],
+      },
+    }),
+  });
+  const r = await runs.create(
+    {
+      sessionId: "s",
+      steps: [{ id: "observe", kind: "commands", input: { commands: { command: "snapshot" } } }],
+    },
+    actor,
+  );
+  await settled(r.id, "completed");
+  expect(JSON.stringify(await store.read(`runs/${r.id}.json`))).not.toContain(
+    "reflected-vault-value",
+  );
+  expect(runs.get(r.id, actor).results[0].output).toMatchObject({
+    privateCapture: true,
+    results: [{ ok: true, command: "snapshot", effect: "none" }],
+  });
+});
+it("does not auto-execute a task whose explicit control delegation failed", async () => {
+  const lease = await control.acquire("s", actor, { mode: "human" });
+  runs.registerKind("test", { validate: (x) => x, replay: "safe", execute: vi.fn() });
+  vi.spyOn(control, "transfer").mockRejectedValueOnce(new Error("fenced during save"));
+  await expect(
+    runs.create({ sessionId: "s", controlToken: lease.token, steps: [step] }, actor),
+  ).rejects.toThrow("fenced during save");
+  expect(runs.list(actor)).toMatchObject([
+    { status: "paused", pauseReason: "control_delegation_pending" },
+  ]);
+});

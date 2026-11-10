@@ -544,6 +544,14 @@ export class CommandEngine {
       }
       job.touched = false;
       job.tab = undefined;
+      if (isMutating(command) && this.host.beforeMutation) {
+        const tabs = active.tabs.list();
+        const tab =
+          tabs.find((t) => t.id === (command as { tab?: string }).tab) ??
+          (tabs.length === 1 ? tabs[0] : undefined);
+        await this.host.beforeMutation(active.id, command, await tab?.page());
+        if (await this.stopped(active, job)) return;
+      }
       execution.ran++;
       const ctx = this.context(active, job);
       const result = await this.track(active, job, command, ctx, execute(ctx, command));

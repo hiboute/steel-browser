@@ -1,3 +1,4 @@
+import type { Actor } from "./control/access.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
 import type { Page } from "puppeteer-core";
@@ -142,13 +143,15 @@ export class WatcherService {
     if (input.condition.type !== "changed" && input.condition.value === undefined)
       throw new ExtrasError("invalid_watcher", "This condition requires a value");
   }
-  async create(input: WatcherInput, client = "anonymous") {
+  async create(input: WatcherInput, client = "anonymous", actor?: Actor) {
     this.validate(input);
     const at = new Date().toISOString();
     const record: WatcherRecord = {
       ...input,
       id: randomUUID(),
       client,
+      ownerId: actor?.id,
+      ownerAuthenticated: actor?.authenticated,
       createdAt: at,
       updatedAt: at,
       state: { nextRunAt: at, consecutiveErrors: 0 },
@@ -238,6 +241,13 @@ export class WatcherService {
             cookieSets: record.cookieSets,
             egress: record.egress,
             client: record.client ?? "anonymous",
+            _principal: record.ownerId
+              ? {
+                  id: record.ownerId,
+                  role: "agent",
+                  authenticated: record.ownerAuthenticated ?? false,
+                }
+              : undefined,
           } as StartSessionOptions,
         },
         async (session) => {

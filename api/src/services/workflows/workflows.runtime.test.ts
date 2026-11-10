@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import puppeteer, { type Browser } from "puppeteer-core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import Fastify, { type FastifyInstance } from "fastify";
+import fp from "fastify-plugin";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlatformStore } from "../platform/store.js";
 import { PlatformEvents } from "../platform/events.js";
 import { WorkflowService } from "./workflows.service.js";
@@ -15,6 +17,8 @@ import { SessionCommands } from "../commands/registry.js";
 import type { Actor } from "../control/access.js";
 import type { Session, SessionService } from "../session.service.js";
 import type { FileService } from "../file.service.js";
+import nextPlatformPlugin from "../control/next-platform.plugin.js";
+import workflowPlugin from "./workflows.plugin.js";
 
 const chrome = process.env.CHROME_EXECUTABLE_PATH || "/usr/bin/chromium";
 const actor: Actor = { id: "alice", role: "agent", authenticated: true };
@@ -31,6 +35,7 @@ describe.skipIf(!existsSync(chrome))("procedures with the real durable runner an
     records: Map<string, Session>,
     sessions: SessionService,
     initial: Session;
+  let app: FastifyInstance | undefined;
   const launch = async () => {
     const browser = await puppeteer.launch({
       executablePath: chrome,
@@ -124,6 +129,7 @@ describe.skipIf(!existsSync(chrome))("procedures with the real durable runner an
     ],
   });
   beforeEach(async () => {
+    app = undefined;
     root = await mkdtemp(path.join(tmpdir(), "steel-workflow-real-"));
     committed = 0;
     title = "Fixture";
@@ -156,6 +162,7 @@ describe.skipIf(!existsSync(chrome))("procedures with the real durable runner an
     await initialize();
   });
   afterEach(async () => {
+    await app?.close();
     await runs?.close();
     await service?.close();
     commands?.close();
@@ -295,5 +302,88 @@ describe.skipIf(!existsSync(chrome))("procedures with the real durable runner an
       candidate: "Changed title",
     });
     expect(committed).toBe(0);
+  });
+  it("boots real plugins before starting recovered workflow steps", async () => {
+    await (await initial.cdpService.getAllPages())[0].goto(origin);
+    const procedure = await service.saveProcedure(
+      {
+        name: "Recovered read",
+        steps: [
+          {
+            id: "title",
+            kind: "assert",
+            assertion: {
+              id: "title",
+              label: "Fixture title",
+              command: { command: "get", what: "title" },
+              operator: "equals",
+              expected: "Fixture",
+            },
+          },
+        ],
+      },
+      actor,
+    );
+    const run = await service.startProcedure(
+      procedure.id,
+      { sessionId: initial.id, idempotencyKey: "startup-order" },
+      actor,
+    );
+    await settle(run.id);
+    await runs.close();
+    await service.close();
+    commands.close();
+    await control.close();
+    const saved = await store.read<any>(`runs/${run.id}.json`);
+    saved.status = "queued";
+    saved.cursor = 0;
+    saved.results = saved.results.map((r: any) => ({
+      stepId: r.stepId,
+      status: "pending",
+      attempts: 0,
+    }));
+    delete saved.pauseReason;
+    await store.write(`runs/${run.id}.json`, saved);
+    Object.assign(initial, { ownerId: actor.id });
+    Object.assign(sessions, {
+      listSessions: () => [initial],
+      activeSession: { id: "idle" },
+      hooks: { add: () => () => {} },
+    });
+    app = Fastify();
+    app.decorate("store", store);
+    app.decorate("events", events);
+    app.decorate("sessionService", sessions);
+    app.decorate("fileService", {
+      forSession: () => ({ getBaseFilesPath: () => root }),
+    } as unknown as FileService);
+    app.decorate("browserPool", { setSchedulingPolicy: () => {} } as any);
+    const loadedWhenRunning: boolean[] = [];
+    const unsubscribe = events.subscribe((event) => {
+      const changed = (event.data as any)?.run;
+      if (event.type === "run.updated" && changed?.id === run.id && changed.status === "running")
+        loadedWhenRunning.push(
+          app!.workflowService.listProcedures(operator).some((p) => p.id === procedure.id),
+        );
+    });
+    await app.register(fp(async () => {}, { name: "steel-platform" }));
+    await app.register(nextPlatformPlugin);
+    await app.register(workflowPlugin, { actor: () => operator });
+    app.addHook("onReady", async () => {
+      await app!.runs.startRecovered();
+    });
+    await app.ready();
+    runs = app.runs;
+    service = app.workflowService;
+    commands = app.sessionCommands;
+    control = app.control;
+    await until(() => runs.get(run.id, actor).status === "completed");
+    expect(loadedWhenRunning.length).toBeGreaterThan(0);
+    expect(loadedWhenRunning.every(Boolean)).toBe(true);
+    await vi.waitFor(async () => {
+      const receipt = await store.read<any>(`workflows/receipts/${run.id}.json`);
+      expect(receipt?.status, JSON.stringify(receipt)).toBe("verified");
+    });
+    unsubscribe();
   });
 });

@@ -1,6 +1,6 @@
 import { requestSchema, type CommandRequest } from "../commands/commands.js";
 import type { RecoveryStep } from "./types.js";
-import { WorkbenchError } from "./workbench.service.js";
+import { WorkbenchError } from "./errors.js";
 
 export function recoveryCommands(step: RecoveryStep, site: string): CommandRequest {
   const args =

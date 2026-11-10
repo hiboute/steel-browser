@@ -32,7 +32,7 @@ export interface InboxCard extends Omit<WorkSource, "id" | "revision"> {
 export interface SourceAction {
   action: Exclude<InboxAction, "open">;
   note?: string;
-  resolution?: string;
+  resolution?: { stepId: string; outcome: "applied" | "not_applied"; evidence: string };
   contentHash?: string;
   controlToken?: string;
 }

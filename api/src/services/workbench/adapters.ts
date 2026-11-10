@@ -16,7 +16,10 @@ interface RunService {
   resume(
     id: string,
     actor: WorkbenchActor,
-    input?: { resolution?: string; controlToken?: string },
+    input?: {
+      resolution?: { stepId: string; outcome: "applied" | "not_applied"; evidence: string };
+      controlToken?: string;
+    },
   ): unknown | Promise<unknown>;
   create?(input: unknown, actor: WorkbenchActor): unknown | Promise<unknown>;
 }
@@ -68,7 +71,12 @@ export const runSource = (run: RecordValue): WorkSource => ({
     ...(["paused", "failed", "uncertain"].includes(run.status) ? ["retry" as const] : []),
     ...(run.sessionId ? ["open" as const] : []),
   ],
-  details: { cursor: run.cursor, total: run.steps?.length, results: run.results },
+  details: {
+    cursor: run.cursor,
+    stepId: run.steps?.[run.cursor]?.id,
+    total: run.steps?.length,
+    results: run.results,
+  },
 });
 const reviewSource = (review: RecordValue): WorkSource => ({
   kind: "review",
@@ -87,7 +95,13 @@ const reviewSource = (review: RecordValue): WorkSource => ({
       : []),
     ...(review.sessionId ? ["open" as const] : []),
   ],
-  details: { proposal: review.proposal, contentHash: review.contentHash, stepId: review.stepId },
+  details: {
+    proposal: review.proposal,
+    preparedSnapshot: review.preparedSnapshot,
+    preparedStateHash: review.preparedStateHash,
+    contentHash: review.contentHash,
+    stepId: review.stepId,
+  },
 });
 
 export function defaultWorkbenchAdapters(server: FastifyInstance): WorkbenchAdapters {
@@ -136,7 +150,7 @@ export function defaultWorkbenchAdapters(server: FastifyInstance): WorkbenchAdap
         kind: "handoff",
         id: h.id,
         sessionId: h.sessionId,
-        ownerId: h.requestedBy,
+        ownerId: (server as any).control?.owner(h.sessionId) ?? h.requestedBy,
         status: h.status,
         title: h.reason,
         description: h.instructions,

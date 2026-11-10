@@ -50,7 +50,13 @@ const action = z
     expectedRevision: revision,
     action: z.enum(["answer", "retry", "approve", "reject"]),
     note: z.string().max(8000).optional(),
-    resolution: z.string().max(2000).optional(),
+    resolution: z
+      .object({
+        stepId: z.string().min(1),
+        outcome: z.enum(["applied", "not_applied"]),
+        evidence: z.string().min(1).max(4000),
+      })
+      .optional(),
     contentHash: z.string().max(128).optional(),
   })
   .strict();
@@ -81,14 +87,12 @@ export default async function workbenchRoutes(server: FastifyInstance) {
     if (error instanceof WorkbenchError)
       return reply.code(error.statusCode).send({ code: error.code, message: error.message });
     if (error instanceof z.ZodError)
-      return reply
-        .code(400)
-        .send({
-          code: "invalid_request",
-          message: error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; "),
-        });
+      return reply.code(400).send({
+        code: "invalid_request",
+        message: error.issues
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+          .join("; "),
+      });
     const problem = error as {
       statusCode?: number;
       code?: string;
@@ -97,12 +101,10 @@ export default async function workbenchRoutes(server: FastifyInstance) {
     };
     const status = problem.statusCode ?? 500;
     if (status >= 500) request.log.error({ err: error }, "Workbench operation failed");
-    return reply
-      .code(status)
-      .send({
-        code: problem.validation ? "invalid_request" : problem.code ?? "workbench_failed",
-        message: status >= 500 ? "The workbench operation could not complete" : problem.message,
-      });
+    return reply.code(status).send({
+      code: problem.validation ? "invalid_request" : problem.code ?? "workbench_failed",
+      message: status >= 500 ? "The workbench operation could not complete" : problem.message,
+    });
   });
   server.get<{ Querystring: { includeDismissed?: boolean; status?: string; limit?: number } }>(
     "/inbox",

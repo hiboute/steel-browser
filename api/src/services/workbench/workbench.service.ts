@@ -2,6 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PlatformStore } from "../platform/store.js";
 import { redactArguments } from "../handoff/agent-feature-utils.js";
 import { explainState } from "./explanation.js";
+import { recoveryCommands } from "./recovery-commands.js";
+import { WorkbenchError } from "./errors.js";
+export { WorkbenchError } from "./errors.js";
 import type {
   InboxCard,
   KnowledgeInput,
@@ -13,15 +16,6 @@ import type {
   WorkSource,
 } from "./types.js";
 
-export class WorkbenchError extends Error {
-  constructor(
-    readonly statusCode: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const fail = (code: string, message: string, status = 409): never => {
   throw new WorkbenchError(status, code, message);
@@ -113,7 +107,14 @@ export class WorkbenchService {
     const unique = new Map<string, WorkSource>();
     for (const source of items) {
       if (actor.role !== "operator" && source.ownerId !== actor.id) continue;
-      if (source.sessionId) await this.adapters.authorize(source.sessionId, actor);
+      if (source.sessionId) {
+        try {
+          await this.adapters.authorize(source.sessionId, actor);
+        } catch (error: any) {
+          if ([403, 404].includes(error.statusCode)) continue;
+          throw error;
+        }
+      }
       const key = `${source.kind}:${source.id}`;
       if (!unique.has(key) || unique.get(key)!.updatedAt < source.updatedAt)
         unique.set(key, source);
@@ -423,6 +424,9 @@ export class WorkbenchService {
           "review_steps",
           "Edit the recovery steps into supported, non-secret actions before applying",
         );
+      // Validate before reserving an acceptance key. A schema error has not
+      // executed anything and must not masquerade as an uncertain side effect.
+      for (const step of item.steps) recoveryCommands(step, item.origin);
       const acceptanceId = digest([
           actor.id,
           id,

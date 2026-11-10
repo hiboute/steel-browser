@@ -91,6 +91,13 @@ afterEach(async () => {
 });
 
 describe("work inbox", () => {
+  it("omits inaccessible source sessions without hiding permitted work", async () => {
+    rows.push({ ...rows[0], id: "denied", sessionId: "foreign" });
+    adapters.authorize = async (id) => {
+      if (id === "foreign") throw Object.assign(new Error("denied"), { statusCode: 403 });
+    };
+    expect((await service.inbox(actor)).map((item) => item.sourceId)).toEqual(["r1"]);
+  });
   it("deduplicates stable IDs, scopes callers and persists read/dismiss state across restart", async () => {
     rows.push({ ...rows[0] }, { ...rows[0], id: "other", ownerId: "bob" });
     const [card] = await service.inbox(actor);
@@ -235,6 +242,26 @@ describe("learned recovery", () => {
     expect(first).toEqual(repeat);
     expect(adapters.applyRecovery).toHaveBeenCalledTimes(1);
     expect(adapters.authorize).toHaveBeenCalledWith("s1", actor, "lease", true);
+  });
+  it("rejects invalid recovery commands before reserving an acceptance", async () => {
+    const saved = await service.createKnowledge(knowledge, actor);
+    const invalid = await service.updateKnowledge(saved.id, actor, {
+      expectedVersion: 1,
+      steps: [{ seq: 1, tool: "browser_click", args: {}, replayable: true }],
+    });
+    const input = {
+      expectedVersion: invalid.version,
+      sessionId: "s1",
+      accepted: true,
+      idempotencyKey: "invalid-command",
+    };
+    await expect(service.acceptKnowledge(saved.id, actor, input)).rejects.toMatchObject({
+      code: "invalid_recovery_step",
+    });
+    await expect(service.acceptKnowledge(saved.id, actor, input)).rejects.toMatchObject({
+      code: "invalid_recovery_step",
+    });
+    expect(adapters.applyRecovery).not.toHaveBeenCalled();
   });
   it("does not replay an ambiguous failed application after a restart", async () => {
     const saved = await service.createKnowledge(knowledge, actor);

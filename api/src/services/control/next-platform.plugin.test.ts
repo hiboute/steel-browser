@@ -139,7 +139,12 @@ describe("global route fencing", () => {
 
 it("binds legacy primary reads and hides other principals' queue and slot identity", async () => {
   const app = await setup();
-  for (const url of ["/v1/sessions/debug", "/v1/json/list"])
+  for (const url of [
+    "/v1/sessions/debug",
+    "/v1/json/list",
+    "/v1/sessions/debug?sessionId=s",
+    "/v1/json/list?sessionId=s",
+  ])
     expect((await app.inject({ url, headers: auth })).statusCode).toBe(403);
   const pool = (await app.inject({ url: "/v1/pool", headers: auth })).json();
   expect(pool.queue).toEqual([{ sessionId: "s", client: "agent" }]);

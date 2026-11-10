@@ -47,7 +47,7 @@ const plugin: FastifyPluginAsync = async (server) => {
   });
   let runs: RunService;
   const control = new OwnershipService(server.store, async (id, lease) => {
-    commands.reset(id);
+    await commands.fence(id);
     publish("control.changed", { sessionId: id, lease }, id);
     if (lease?.mode === "human" || !lease)
       void runs
@@ -139,7 +139,7 @@ const plugin: FastifyPluginAsync = async (server) => {
         (path === "/v1/events" && write) ||
         path.startsWith("/selenium/wd/")
       )
-        id ??= server.sessionService.activeSession.id;
+        id = server.sessionService.activeSession.id;
       if (id) {
         const controlRoute = /\/control(?:\/|$)/.test(path);
         access.authorizeSession(request, id, write && !controlRoute);
@@ -153,6 +153,14 @@ const plugin: FastifyPluginAsync = async (server) => {
           "operator_required",
           "Global browser history requires operator access",
         );
+      const warmPath = /^\/v1\/warm\/([^/]+)/.exec(path);
+      if (write && warmPath) {
+        const record = server.warmService
+          ?.list()
+          .find((r) => r.name === decodeURIComponent(warmPath[1]));
+        if (record && server.sessionService.getSession(record.sessionId))
+          access.authorizeSession(request, record.sessionId, true);
+      }
       const actor = request.steelPrincipal;
       if (actor && actor.role !== "operator") {
         if (write && (/^\/v1\/extensions(?:\/|$)/.test(path) || path === "/selenium/wd/session"))
@@ -166,8 +174,6 @@ const plugin: FastifyPluginAsync = async (server) => {
             .find((r) => r.name === decodeURIComponent(warm[1]));
           if (record && record.ownerId !== actor.id)
             throw new AccessError("warm_denied", "Warm browser belongs to another principal");
-          if (record && write && server.sessionService.getSession(record.sessionId))
-            access.authorizeSession(request, record.sessionId, true);
         }
         const watcher = /^\/v1\/watchers\/([^/]+)/.exec(path);
         if (watcher) {
@@ -278,7 +284,6 @@ const plugin: FastifyPluginAsync = async (server) => {
       if (!session.isSelenium) commands.get(session.id);
     },
     onEnding: async (session) => {
-      commands.reset(session.id);
       await control.invalidate(session.id);
       await budgets.detach(session.id);
     },

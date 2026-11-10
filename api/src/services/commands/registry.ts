@@ -51,6 +51,11 @@ export class SessionCommands {
   busy(id: string) {
     return this.engines.get(id)?.busy() ?? false;
   }
+  async fence(id: string) {
+    const engine = this.engines.get(id);
+    this.reset(id);
+    if (engine) await quickActionsDone(engine);
+  }
   reset(id: string) {
     const engine = this.engines.get(id);
     engine?.sessionEnded();

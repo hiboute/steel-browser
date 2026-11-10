@@ -193,8 +193,10 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
 
       if (handler) {
         try {
-          if (fastify.control && !pathname.endsWith("/cast") && scoped?.[2] !== "cast")
-            assertControl();
+          const readOnlyHandler = ["cast", "logs", "recording", "pageId"].includes(
+            scoped?.[2] ?? pathname.split("/").pop() ?? "",
+          );
+          if (fastify.control && !readOnlyHandler) assertControl();
           await handler.handler(request, socket, head, context);
         } catch (err) {
           fastify.log.error({ err }, `WebSocket handler error for ${pathname}`);

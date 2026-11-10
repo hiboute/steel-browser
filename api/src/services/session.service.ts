@@ -1,3 +1,4 @@
+import type { Page } from "puppeteer-core";
 import { FastifyBaseLogger } from "fastify";
 import { mkdir, readFile, rm, writeFile, rename, cp, stat } from "fs/promises";
 import os from "os";
@@ -1512,10 +1513,12 @@ export class SessionService {
   ): Promise<void> {
     const existing = await session.cdpService.getAllPages();
     let active = existing[0];
+    const restored = new Set<Page>();
     for (const [index, tab] of snapshot.tabs.entries()) {
       // Do not reopen privileged or executable URLs from untrusted page state.
       if (!/^https?:\/\//i.test(tab.url) && tab.url !== "about:blank") continue;
-      const page = index === 0 && existing[0] ? existing[0] : await session.cdpService.createPage();
+      const page = existing[index] ?? (await session.cdpService.createPage());
+      restored.add(page);
       let storageScript: string | undefined;
       if (restoreStorage && /^https?:\/\//i.test(tab.url)) {
         const origin = new URL(tab.url).origin;
@@ -1545,6 +1548,8 @@ export class SessionService {
         .catch(() => undefined);
       if (tab.active) active = page;
     }
+    if (restored.size)
+      for (const page of existing) if (!restored.has(page)) await page.close().catch(() => {});
     await active?.bringToFront();
   }
 

@@ -59,6 +59,7 @@ function makePage(url = "about:blank", active = true, scrollY = 0) {
     }),
     bringToFront: vi.fn().mockResolvedValue(undefined),
     screenshot: vi.fn().mockResolvedValue(Buffer.from("jpeg-thumbnail")),
+    close: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -432,4 +433,24 @@ describe("durable session parking", () => {
       "Could not park session on shutdown",
     );
   }, 3000);
+});
+
+it("reuses restored Chrome tabs and closes surplus startup tabs rather than duplicating on every resume", async () => {
+  const fixture = await setup();
+  const { service, browsers } = fixture;
+  const { id } = await parkedSession(fixture);
+  const existing = [
+    makePage("https://example.test/old-one"),
+    makePage("https://example.test/old-two"),
+    makePage("about:blank"),
+  ];
+  browsers[0].startNewSession.mockImplementationOnce(async () => {
+    browsers[0].pages = existing;
+    browsers[0].running = true;
+  });
+  await service.resumeSession(id);
+  expect(browsers[0].createPage).not.toHaveBeenCalled();
+  expect(existing[0].url()).toBe("https://example.test/one");
+  expect(existing[1].url()).toBe("https://example.test/two");
+  expect(existing[2].close).toHaveBeenCalledOnce();
 });

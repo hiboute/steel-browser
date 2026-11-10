@@ -3,7 +3,7 @@ import { cp, lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import path from "node:path";
 import type { PlatformStore } from "../platform/store.js";
-import type { SessionService, ParkedSnapshot } from "../session.service.js";
+import type { SessionService, ParkedSnapshot, Session } from "../session.service.js";
 import { AccessError, type Actor } from "../control/access.js";
 export interface Checkpoint {
   id: string;
@@ -177,7 +177,8 @@ export class CheckpointService {
       try {
         const result = await this.sessions.importCheckpoint(snapshot);
         this.publish("checkpoint.branched", { checkpointId: id, sessionId }, sessionId);
-        return result;
+        const { cdpService, proxyServer, completion, complete, ...details } = result as Session;
+        return details;
       } catch (error) {
         if (!this.sessions.getSession(sessionId)) await this.store.remove(`parked/${sessionId}`);
         throw error;

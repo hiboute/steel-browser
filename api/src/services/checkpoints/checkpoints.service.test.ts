@@ -24,7 +24,15 @@ beforeEach(async () => {
     withCheckpoint: async (_id: string, fn: any) => fn(structuredClone(snapshot)),
     importCheckpoint: async (s: any) => {
       imports.push(s);
-      return s.details;
+      const circular: any = {};
+      circular.self = circular;
+      return {
+        ...s.details,
+        cdpService: circular,
+        proxyServer: circular,
+        completion: Promise.resolve(),
+        complete: () => {},
+      };
     },
     getSession: () => undefined,
   };
@@ -37,6 +45,9 @@ describe("immutable browser checkpoints", () => {
     const first = await service.branch(saved.id, {}, actor);
     const second = await service.branch(saved.id, { name: "experiment" }, actor);
     expect(first.id).not.toBe(second.id);
+    expect(() => JSON.stringify(first)).not.toThrow();
+    expect(first).not.toHaveProperty("cdpService");
+    expect(first).not.toHaveProperty("proxyServer");
     expect(imports[0].tabs[0].storage.draft).toBe("retained");
     expect(imports[0].options.cookieSets).toEqual([]);
     expect(imports[0].options.cookieSetWriteBack).toBe(false);

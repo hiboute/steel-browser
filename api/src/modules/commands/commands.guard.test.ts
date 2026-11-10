@@ -59,3 +59,26 @@ describe("quick action tracking", () => {
     expect(changes()).toBe(0);
   });
 });
+
+test("settles the original tracked action when takeover replaces its engine", async () => {
+  const { server, engine, reply, changes } = fixture();
+  let finish!: () => void;
+  const action = quickAction(
+    server,
+    { body: {} },
+    reply,
+    () => new Promise<void>((r) => (finish = r)),
+  );
+  (server as any).commandEngine = null;
+  let settled = false;
+  const pending = quickActionsDone(engine).then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  finish();
+  await action;
+  await pending;
+  expect(settled).toBe(true);
+  expect(changes()).toBe(1);
+});

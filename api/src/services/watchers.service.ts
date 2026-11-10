@@ -76,6 +76,18 @@ export class WatcherService {
   private mutations = new Map<string, Promise<unknown>>();
   private timer?: NodeJS.Timeout;
   private closed = false;
+  private captureDiff?: (
+    page: Page,
+    record: WatcherRecord,
+    sessionId: string,
+  ) => Promise<{
+    snapshotId: string;
+    text: string;
+    diff?: { changed: boolean; visual?: { status: string }; [key: string]: unknown };
+  }>;
+  setPageDiffs(capture: NonNullable<WatcherService["captureDiff"]>) {
+    this.captureDiff = capture;
+  }
   constructor(
     private store: PlatformStore,
     private jobs: BackgroundJobs,
@@ -155,6 +167,13 @@ export class WatcherService {
         updatedAt: new Date().toISOString(),
         state: { ...previous.state, nextRunAt: new Date().toISOString(), running: false },
       };
+      if (
+        previous.url !== record.url ||
+        JSON.stringify(previous.pageDiff) !== JSON.stringify(record.pageDiff)
+      ) {
+        delete record.state.lastSnapshotId;
+        delete record.state.lastValue;
+      }
       await this.store.write(`watchers/${id}.json`, record);
       this.records.set(id, record);
       return record;
@@ -228,7 +247,17 @@ export class WatcherService {
             await safeGoto(page, record.url, { timeout: 30000, waitUntil: "domcontentloaded" });
             await waitForExtraction(page, record.waitFor);
             policy.throwIfBlocked();
-            return { value: await this.pageValue(page, record) };
+            if (record.pageDiff) {
+              if (!this.captureDiff)
+                throw new ExtrasError("diff_unavailable", "Page diff service is unavailable", 503);
+              const captured = await this.captureDiff(page, record, session.id);
+              return { value: captured.text, snapshotId: captured.snapshotId, diff: captured.diff };
+            }
+            return {
+              value: await this.pageValue(page, record),
+              snapshotId: undefined,
+              diff: undefined,
+            };
           });
         },
       );
@@ -238,8 +267,20 @@ export class WatcherService {
         ).toISOString();
         return { at, status: "postponed", durationMs: Date.now() - started };
       }
-      const matched = await matchesCondition(record.condition, job.value, record.state.lastValue);
-      result = { at, status: "ok", value: job.value, matched, durationMs: Date.now() - started };
+      const matched =
+        record.pageDiff && record.condition.type === "changed"
+          ? !!job.diff && (job.diff.changed || job.diff.visual?.status === "changed")
+          : await matchesCondition(record.condition, job.value, record.state.lastValue);
+      result = {
+        at,
+        status: "ok",
+        value: job.value,
+        matched,
+        snapshotId: job.snapshotId,
+        diff: job.diff,
+        durationMs: Date.now() - started,
+      };
+      if (job.snapshotId) record.state.lastSnapshotId = job.snapshotId;
       record.state.lastValue = job.value;
       record.state.consecutiveErrors = 0;
       delete record.state.lastErrorNotifiedAt;
@@ -250,7 +291,12 @@ export class WatcherService {
           title: `Page watch: ${record.name}`,
           message: `The ${record.condition.type} condition matched.`,
           url: record.url,
-          data: { watcherId: record.id, value: job.value },
+          data: {
+            watcherId: record.id,
+            value: job.value,
+            snapshotId: job.snapshotId,
+            diff: job.diff,
+          },
         };
       }
     } catch (error) {

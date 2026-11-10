@@ -51,6 +51,44 @@ async function setup() {
 }
 
 describe("page watchers", () => {
+  it("persists diff baselines and notifies on visual changes even when text is unchanged", async () => {
+    const { service, settings, notifier, store } = await setup();
+    const capture = vi
+      .fn()
+      .mockResolvedValueOnce({ snapshotId: "first", text: "Price 12" })
+      .mockResolvedValueOnce({
+        snapshotId: "second",
+        text: "Price 12",
+        diff: { changed: false, visual: { status: "unchanged" } },
+      })
+      .mockResolvedValueOnce({
+        snapshotId: "third",
+        text: "Price 12",
+        diff: { changed: false, visual: { status: "changed" } },
+      });
+    service.setPageDiffs(capture);
+    const watcher = await service.create({
+      ...settings,
+      pageDiff: { ignoreSelectors: ["#clock"], visual: true },
+    });
+    expect((await service.run(watcher.id)).matched).toBe(false);
+    expect((await service.run(watcher.id)).matched).toBe(false);
+    const changed = await service.run(watcher.id);
+    expect(changed).toMatchObject({
+      matched: true,
+      snapshotId: "third",
+      diff: { visual: { status: "changed" } },
+    });
+    expect(notifier.send).toHaveBeenCalledOnce();
+    expect(await store.read<any>(`watchers/${watcher.id}.json`)).toMatchObject({
+      state: { lastSnapshotId: "third" },
+    });
+    await service.update(watcher.id, {
+      ...settings,
+      pageDiff: { ignoreSelectors: ["#new-noise"] },
+    });
+    expect(service.get(watcher.id).state.lastSnapshotId).toBeUndefined();
+  });
   it("compares successive values, notifies on changes, and persists its state and history", async () => {
     const { service, page, notifier, store, settings, jobs } = await setup();
     const watcher = await service.create(settings, "mcp:owner@example.com");

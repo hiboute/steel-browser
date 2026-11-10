@@ -15,6 +15,8 @@ export interface Logger {
 }
 
 export interface BrowserLogger {
+  /** Permanently omit payloads for this browser after a vault fill. */
+  setPrivateCapture?(): void;
   record(event: BrowserEventUnion): void;
   resetContext(): void;
   setContext(
@@ -39,6 +41,7 @@ export function createBrowserLogger(options: CreateBrowserLoggerOptions): Browse
   const storage = options.storage || null;
   const enableConsoleLogging = options.enableConsoleLogging ?? true;
   const eventEmitter = new EventEmitter();
+  let privateCapture = false;
 
   const resetContext = () => {
     context = options.initialContext ?? {};
@@ -58,18 +61,15 @@ export function createBrowserLogger(options: CreateBrowserLoggerOptions): Browse
   const getContext = (): Readonly<Context> => context;
 
   const record = (event: BrowserEventUnion) => {
+    // A vault-filled page can reflect credentials into console, network and CDP payloads.
+    // Disable instrumentation entirely for this browser; structured vault audit remains available.
+    if (privateCapture) return;
     const mergedEvent = { ...context, ...event };
-
-    if (enableConsoleLogging) {
-      options.baseLogger.info(mergedEvent, event.type);
-    }
-
-    if (storage) {
-      storage.write(event, context).catch((err) => {
-        options.baseLogger.error({ err }, "Failed to write event to storage");
-      });
-    }
-
+    if (enableConsoleLogging) options.baseLogger.info(mergedEvent, event.type);
+    if (storage)
+      storage
+        .write(event, context)
+        .catch((err) => options.baseLogger.error({ err }, "Failed to write event to storage"));
     if (event.type !== BrowserEventType.Recording) eventEmitter.emit(EmitEvent.Log, event, context);
   };
 
@@ -98,6 +98,9 @@ export function createBrowserLogger(options: CreateBrowserLoggerOptions): Browse
   };
 
   const logger: BrowserLogger = {
+    setPrivateCapture: () => {
+      privateCapture = true;
+    },
     record,
     resetContext,
     setContext,

@@ -9,6 +9,7 @@ const SECRET_CHARS = 100_000;
 const CODES = 65_536;
 
 export const SECRET_FIELD = `(element) =>
+  element.hasAttribute("data-steel-sensitive") ||
   (element instanceof HTMLInputElement && element.type === "password") ||
   ((element instanceof HTMLInputElement ||
     element instanceof HTMLTextAreaElement ||

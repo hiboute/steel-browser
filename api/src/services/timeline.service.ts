@@ -1,3 +1,4 @@
+import { isSensitiveSession, redactKnownSecrets } from "./data/privacy.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Session } from "./session.service.js";
@@ -73,14 +74,16 @@ export class TimelineService {
         const entries = await this.deps.store.readLines<TimelineEntry>(filename);
         const entry: TimelineEntry = {
           ...input,
-          args: redactArguments(input.args),
+          args: isSensitiveSession(id)
+            ? { redacted: true }
+            : redactKnownSecrets(redactArguments(input.args)),
           seq: (entries.at(-1)?.seq ?? 0) + 1,
           at: new Date().toISOString(),
           client,
           kind: input.kind ?? "action",
           screenshot: false,
         };
-        if (input.screenshot) {
+        if (input.screenshot && !isSensitiveSession(id)) {
           const session = this.deps.getSession(id);
           if (session?.status === "live" && !session.isSelenium) {
             try {

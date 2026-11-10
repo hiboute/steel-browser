@@ -1,3 +1,4 @@
+import { isSensitiveSession } from "./data/privacy.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CDPSession, Page } from "puppeteer-core";
@@ -126,6 +127,10 @@ export class RecordingService {
 
   start(id: string): Promise<RecordingDetails> {
     dataSessionId(id);
+    if (isSensitiveSession(id))
+      return Promise.reject(
+        new AgentFeatureError(409, "sensitive_session", "Recording is disabled after a vault fill"),
+      );
     return this.serialize(id, async () => {
       const session = this.deps.getSession(id);
       if (!session || session.status !== "live")

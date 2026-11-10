@@ -53,6 +53,86 @@ const initialInput = {
   additionalProperties: false,
   properties: { url: { type: "string" }, expectedTitle: { type: "string" } },
 };
+function ScheduleTrigger({ value }: { value?: any }) {
+  const [kind, setKind] = useState(value?.kind ?? "daily");
+  return (
+    <>
+      <label className="field">
+        Trigger
+        <select
+          className="input"
+          name="triggerKind"
+          value={kind}
+          onChange={(event) => setKind(event.target.value)}
+        >
+          <option value="daily">Every day at a local time</option>
+          <option value="interval">Repeating interval</option>
+          <option value="watcher">When a watcher reports</option>
+          <option value="webhook">Authenticated webhook</option>
+        </select>
+      </label>
+      {kind === "daily" && (
+        <>
+          <Field
+            name="triggerTime"
+            label="Local time"
+            type="time"
+            value={value?.at ?? "09:00"}
+            required
+          />
+          <Field
+            name="triggerTimezone"
+            label="Time zone"
+            value={value?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
+            required
+          />
+        </>
+      )}
+      {kind === "interval" && (
+        <Field
+          name="triggerSeconds"
+          label="Repeat every seconds (minimum 60)"
+          type="number"
+          value={value?.everySeconds ?? 3600}
+          required
+        />
+      )}
+      {kind === "watcher" && (
+        <>
+          <Field name="triggerWatcher" label="Watcher ID" value={value?.watcherId} required />
+          <label className="check-row">
+            <input
+              name="triggerMatched"
+              type="checkbox"
+              defaultChecked={value?.onlyMatched ?? true}
+            />
+            Only when its condition matches
+          </label>
+        </>
+      )}
+      {kind === "webhook" && (
+        <p className="field-hint">
+          Saving returns a one-time secret for authenticated incoming requests. Keep it in the
+          calling service.
+        </p>
+      )}
+    </>
+  );
+}
+function triggerFrom(form: FormData) {
+  const kind = string(form, "triggerKind");
+  return kind === "daily"
+    ? { kind, at: string(form, "triggerTime"), timezone: string(form, "triggerTimezone") }
+    : kind === "interval"
+    ? { kind, everySeconds: Number(form.get("triggerSeconds")) }
+    : kind === "watcher"
+    ? {
+        kind,
+        watcherId: string(form, "triggerWatcher"),
+        onlyMatched: form.get("triggerMatched") === "on",
+      }
+    : { kind };
+}
 
 export function AutomationPage({ session }: { session?: SessionDetails | null }) {
   const [tab, setTab] = useState("procedures"),
@@ -486,7 +566,7 @@ export function AutomationPage({ session }: { session?: SessionDetails | null })
                 procedureId: string(form, "procedureId"),
                 version: Number(form.get("version")),
                 inputs: json(string(form, "inputs")),
-                trigger: json(string(form, "trigger")),
+                trigger: triggerFrom(form),
                 sessionOptions: json(string(form, "sessionOptions")),
                 enabled: form.get("enabled") === "on",
                 missedRun: string(form, "missedRun"),
@@ -534,17 +614,7 @@ export function AutomationPage({ session }: { session?: SessionDetails | null })
               <option value="run_once">Run once when available</option>
             </select>
           </label>
-          <JsonField
-            name="trigger"
-            label="Trigger: daily, interval, webhook or watcher"
-            value={
-              schedule?.trigger ?? {
-                kind: "daily",
-                at: "09:00",
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              }
-            }
-          />
+          <ScheduleTrigger key={schedule?.id ?? "new"} value={schedule?.trigger} />
           <JsonField name="inputs" label="Procedure inputs" value={schedule?.inputs ?? {}} />
           <JsonField
             name="sessionOptions"

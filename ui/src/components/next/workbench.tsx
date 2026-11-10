@@ -243,18 +243,23 @@ export function InboxPage() {
     note?: string,
     resolution?: { stepId: string; outcome: string; evidence: string },
   ) =>
-    action.run(
-      `/v1/inbox/${encodeURIComponent(item.id)}/actions`,
-      {
-        expectedRevision: item.revision,
-        action: kind,
-        note,
-        resolution,
-        contentHash: item.details?.contentHash,
-      },
-      "POST",
-      item.sessionId,
-    );
+    action
+      .run(
+        `/v1/inbox/${encodeURIComponent(item.id)}/actions`,
+        {
+          expectedRevision: item.revision,
+          action: kind,
+          note,
+          resolution,
+          contentHash: item.details?.contentHash,
+        },
+        "POST",
+        item.sessionId,
+      )
+      .then((result) => {
+        if (kind === "retry" && item.sessionId) setLocalControl(item.sessionId, null);
+        return result;
+      });
   const mark = (item: Card, fields: object) =>
     action.run(
       `/v1/inbox/${encodeURIComponent(item.id)}`,

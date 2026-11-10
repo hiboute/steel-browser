@@ -25,6 +25,8 @@ const tag = Date.now().toString(36),
     snapshots: [],
     profiles: [],
     checkpoints: [],
+    schedules: [],
+    extractions: [],
   };
 const reports = [],
   errors = [];
@@ -157,6 +159,14 @@ async function check(name, fn) {
 }
 let id;
 try {
+  await wait(
+    () =>
+      fetch(`${api}/v1/health`)
+        .then((response) => response.ok)
+        .catch(() => false),
+    "API startup",
+    60000,
+  );
   await request("/v1/health");
   const session = await request(
     "/v1/sessions",
@@ -203,6 +213,15 @@ try {
   await check("state explanation describes human control", async () => {
     const state = await request(`/v1/sessions/${id}/explanation`);
     assert(state.reasons.some((reason) => reason.code === "human_control"));
+  });
+  await check("scoped DevTools loads through the Workshop proxy", async () => {
+    await page.click('button[aria-label="Show DevTools"]');
+    await page.waitForSelector('iframe[title="Chrome DevTools"]');
+    const element = await page.$('iframe[title="Chrome DevTools"]');
+    const frame = await element.contentFrame();
+    await frame.waitForSelector(".root-view", { timeout: 30000 });
+    await shot("02-scoped-devtools");
+    await page.click('button[aria-label="Hide DevTools"]');
   });
   await check("control transfer fences old commands and updates the viewer", async () => {
     const previous = leases.get(id);
@@ -408,6 +427,34 @@ try {
       await shot("05-verified-result");
     },
   );
+  await check("schedule editor saves a disabled daily trigger with pinned version", async () => {
+    await click("Triggers");
+    await click("Add trigger");
+    await page.click('dialog[open] input[name="enabled"]');
+    await form(
+      "Schedule a procedure",
+      {
+        name: `Daily fixture ${tag}`,
+        procedureId: owned.procedures[0],
+        version: "1",
+        triggerTime: "09:15",
+        triggerTimezone: "UTC",
+        inputs: {},
+        sessionOptions: {},
+      },
+      "Save",
+    );
+    const schedule = await wait(
+      async () =>
+        (await request("/v1/procedure-schedules")).schedules.find(
+          (item) => item.name === `Daily fixture ${tag}`,
+        ),
+      "saved daily trigger",
+    );
+    owned.schedules.push(schedule.id);
+    assert.equal(schedule.enabled, false);
+    assert.deepEqual(schedule.trigger, { kind: "daily", at: "09:15", timezone: "UTC" });
+  });
   await check("recovery executes only the explicitly accepted version", async () => {
     await page.goto(`${base}/?session=${id}`, { waitUntil: "networkidle0" });
     await click("Take control");
@@ -478,6 +525,46 @@ try {
     );
     await shot("07-retained-search");
   });
+  await check(
+    "retained extraction drilldown shows field provenance after its browser closes",
+    async () => {
+      const extraction = await request("/v1/extract", {
+        url: `${site}/?evidence=${tag}`,
+        schema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
+      });
+      assert(extraction.extractionId);
+      owned.extractions.push(extraction.extractionId);
+      await nav("Evidence & workspace");
+      await click("Search");
+      await form(
+        "Search retained work",
+        { q: "Browser", sessionId: "", kind: "extract" },
+        "Search",
+      );
+      await page.waitForFunction(
+        (id) => {
+          const card = [...document.querySelectorAll(".search-results .work-card")].find((card) =>
+            card.textContent.includes(id),
+          );
+          const button = [...(card?.querySelectorAll("button") || [])].find(
+            (button) => button.textContent.trim() === "Read evidence",
+          );
+          if (!button) return false;
+          button.click();
+          return true;
+        },
+        {},
+        extraction.extractionId,
+      );
+      await page.waitForSelector(".work-result .evidence-row");
+      assert(
+        await page.$eval(".work-result", (element) =>
+          element.textContent.includes("Field provenance"),
+        ),
+      );
+      await shot("08-retained-extraction");
+    },
+  );
   await check("bounded diagnosis and checkpoint branch controls", async () => {
     await nav("Browser operations");
     await click("Diagnostics");
@@ -540,6 +627,24 @@ try {
     const expand = await page.$('button[aria-label="Expand sidebar"]');
     if (expand) await expand.click();
     await shot("11-mobile-navigation");
+    await nav("Work inbox");
+    await page.waitForFunction(() => !document.querySelector(".rail"));
+    assert(
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      "mobile content stays within viewport",
+    );
+    await shot("12-mobile-inbox");
+    await page.click('button[aria-label="Expand sidebar"]');
+    await nav("Procedures & runs");
+    await click("New procedure");
+    assert(
+      await page.$eval("dialog[open]", (dialog) => {
+        const r = dialog.getBoundingClientRect();
+        return r.left >= 0 && r.right <= innerWidth;
+      }),
+      "mobile dialog stays within viewport",
+    );
+    await click("Cancel", "button", "dialog[open]");
   });
   assert.deepEqual(errors, [], "browser runtime errors");
 } catch (error) {
@@ -568,6 +673,8 @@ try {
       cleanup.push(String(error));
     }
   for (const [kind, path] of [
+    ["schedules", "procedure-schedules"],
+    ["extractions", "extractions"],
     ["procedures", "procedures"],
     ["snapshots", "page-snapshots"],
     ["profiles", "identity-profiles"],

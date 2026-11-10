@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { apiUrl, request, sessionPath, type SessionDetails } from "../../api";
 import { useResource } from "../../hooks";
 import { Page, ErrorMessage } from "../workspace-pages";
 import { ActionForm, Empty, Field, JsonDetails, string, useAction, when } from "./common";
 
 export function DataPage({ session }: { session?: SessionDetails | null }) {
+  const resultView = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState("search"),
     [query, setQuery] = useState(""),
     [cursor, setCursor] = useState(0),
@@ -24,6 +25,10 @@ export function DataPage({ session }: { session?: SessionDetails | null }) {
     tab === "search" ? 0 : 5000,
   );
   const action = useAction(rows.refresh);
+  useEffect(() => {
+    if (detail !== undefined)
+      resultView.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [detail]);
   const show = async (path: string) => {
     try {
       setDetail(await request(path));
@@ -99,6 +104,28 @@ export function DataPage({ session }: { session?: SessionDetails | null }) {
                 <h2>{hit.title}</h2>
                 <p>{hit.snippet || hit.excerpt}</p>
                 {hit.sessionId && <a href={`?session=${hit.sessionId}`}>Open source browser ↗</a>}
+                {["extract", "snapshot", "artifact"].includes(hit.kind) && (
+                  <div className="button-row">
+                    <button
+                      className="pill-button"
+                      onClick={() =>
+                        void show(
+                          `/v1/${
+                            (
+                              {
+                                extract: "extractions",
+                                snapshot: "page-snapshots",
+                                artifact: "artifacts",
+                              } as Record<string, string>
+                            )[hit.kind]
+                          }/${encodeURIComponent(hit.sourceId)}`,
+                        )
+                      }
+                    >
+                      Read evidence
+                    </button>
+                  </div>
+                )}
                 <JsonDetails value={hit} label="Source reference" />
               </article>
             ))}
@@ -481,12 +508,37 @@ export function DataPage({ session }: { session?: SessionDetails | null }) {
         </>
       )}
       {detail !== undefined && (
-        <div className="work-result">
+        <div className="work-result" ref={resultView}>
           <button className="pill-button" onClick={() => setDetail(undefined)}>
             Close result
           </button>
           {detail.status === "staged" && <p role="status">Recovery staged. {detail.activation}</p>}
-          <pre>{JSON.stringify(detail, null, 2)}</pre>
+          {Array.isArray(detail.evidence) && (
+            <section className="extraction-evidence">
+              <h2>{detail.title || "Retained extraction"}</h2>
+              <p className="field-hint">{detail.url}</p>
+              <pre>{JSON.stringify(detail.data, null, 2)}</pre>
+              <h3>Field provenance</h3>
+              {detail.evidence.map((field: any, index: number) => (
+                <article className="evidence-row" key={index}>
+                  <span className="status-chip" data-state={field.status}>
+                    {field.status}
+                  </span>
+                  <strong>{field.path}</strong>
+                  {field.excerpt && <blockquote>{field.excerpt}</blockquote>}
+                  {field.reason && <p>{field.reason}</p>}
+                  <small>
+                    {when(field.observedAt)}
+                    {field.selector && ` · ${field.selector}`} ·{" "}
+                    <a href={field.url} target="_blank" rel="noreferrer">
+                      Source page ↗
+                    </a>
+                  </small>
+                </article>
+              ))}
+            </section>
+          )}
+          <JsonDetails value={detail} label="Full retained evidence" />
         </div>
       )}
     </Page>

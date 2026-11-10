@@ -26,7 +26,8 @@ function FleetBrowser({
 }) {
   const control = useLocalControl(session.id),
     action = useAction(refresh),
-    [command, setCommand] = useState<any>();
+    [command, setCommand] = useState<any>(),
+    [kind, setKind] = useState("snapshot");
   const current = useResource<any>(
     command?.id ? `/v1/fleet/sessions/${session.id}/commands/${command.id}` : null,
     1500,
@@ -108,8 +109,22 @@ function FleetBrowser({
                 .run(
                   `/v1/fleet/sessions/${session.id}/commands`,
                   {
-                    kind: string(form, "kind"),
-                    payload: json(string(form, "payload")),
+                    kind,
+                    payload:
+                      kind === "goto"
+                        ? { url: string(form, "url") }
+                        : kind === "click"
+                        ? { selector: string(form, "selector") }
+                        : kind === "fill"
+                        ? {
+                            selector: string(form, "selector"),
+                            value: String(form.get("value") ?? ""),
+                          }
+                        : kind === "press"
+                        ? { selector: string(form, "selector"), key: string(form, "key") }
+                        : kind === "evaluate"
+                        ? { expression: string(form, "expression") }
+                        : {},
                     idempotencyKey: crypto.randomUUID(),
                   },
                   "POST",
@@ -120,13 +135,31 @@ function FleetBrowser({
           >
             <label className="field">
               Supported operation
-              <select className="input" name="kind">
+              <select
+                className="input"
+                name="kind"
+                value={kind}
+                onChange={(event) => setKind(event.target.value)}
+              >
                 {worker?.capabilities.commands
                   .filter((kind: string) => !["launch", "close"].includes(kind))
                   .map((kind: string) => <option key={kind}>{kind}</option>)}
               </select>
             </label>
-            <JsonField name="payload" label="Operation arguments" value={{}} />
+            {kind === "goto" && <Field name="url" label="Page URL" type="url" required />}
+            {["click", "fill", "press"].includes(kind) && (
+              <Field name="selector" label="Target CSS selector" required />
+            )}
+            {kind === "fill" && <Field name="value" label="Field value" />}
+            {kind === "press" && (
+              <Field name="key" label="Key or key combination" value="Enter" required />
+            )}
+            {kind === "evaluate" && (
+              <label className="field">
+                JavaScript expression
+                <textarea className="input code-input" name="expression" rows={5} required />
+              </label>
+            )}
           </ActionForm>
         </>
       )}

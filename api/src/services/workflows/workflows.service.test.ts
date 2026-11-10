@@ -117,6 +117,7 @@ beforeEach(async () => {
     events,
     now: () => now,
     replayOrigins: ["https://fixture.test"],
+    releaseReplaySession: async () => {},
     evidenceAllowed: () => true,
     authorizeWatcher: () => {},
   });

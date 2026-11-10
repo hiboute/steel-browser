@@ -131,6 +131,9 @@ starts a fresh local browser with no saved profile, login, extension or secret
 access. Candidate options are limited to `headless`, `dimensions`, `timezone`
 and `egress`. Remote fleet engines have their separate capability protocol and
 are not silently treated as local Chromium sessions.
+Fresh replay sessions are released at completion or cancellation while their
+network guard is still active. Browser shutdown precedes removal of the guard,
+so delayed page scripts cannot start unguarded requests after the test finishes.
 
 Every fixture origin must appear in operator configuration
 `STEEL_REPLAY_ORIGINS` (comma separated HTTP(S) origins). Local owned fixtures also

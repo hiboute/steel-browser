@@ -73,6 +73,11 @@ describe.skipIf(!existsSync(chrome))("procedures with the real durable runner an
       replayOrigins: [origin],
       replayAllowPrivateNetworks: true,
       evidenceAllowed: () => true,
+      releaseReplaySession: async (id) => {
+        const session = records.get(id);
+        if (session) await session.cdpService.getBrowserInstance()?.close();
+        records.delete(id);
+      },
     });
     await runs.initialize();
     await service.initialize(false);
@@ -288,6 +293,8 @@ describe.skipIf(!existsSync(chrome))("procedures with the real durable runner an
     expect(passed.status).toBe("passed");
     expect(passed.observedBrowserVersion).toMatch(/Chrome/);
     expect(runs.get(first.candidateRunId, actor).sessionId).not.toBe(initial.id);
+    await until(() => !records.has(runs.get(first.candidateRunId, actor).sessionId!));
+    expect(records.has(initial.id)).toBe(true);
     title = "Changed title";
     const second = await service.startReplay(
       { ...request, idempotencyKey: "changed-candidate" },

@@ -257,6 +257,8 @@ export async function withNavigationPolicy<T>(
                           value: options.allowedOrigins
                             ? `connect-src ${options.allowedOrigins.join(
                                 " ",
+                              )}; form-action ${options.allowedOrigins.join(
+                                " ",
                               )}; worker-src 'none'; sandbox allow-scripts allow-same-origin allow-forms allow-downloads`
                             : "connect-src http: https:; worker-src 'none'",
                         },

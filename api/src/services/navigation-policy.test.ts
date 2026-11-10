@@ -319,6 +319,7 @@ describe.skipIf(!existsSync(chrome))("real Chromium navigation interception", ()
             form.submit();
           }, `http://other.test:${port}/submit`);
           await new Promise((resolve) => setTimeout(resolve, 100));
+          await page.goto(`http://other.test:${port}/direct-navigation`);
         },
         { ...options, allowedOrigins: [`http://public.test:${port}`] },
       ),

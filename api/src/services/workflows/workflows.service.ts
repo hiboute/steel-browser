@@ -59,6 +59,7 @@ interface Dependencies {
   onError?: (error: unknown) => void;
   replayOrigins?: string[];
   replayAllowPrivateNetworks?: boolean;
+  releaseReplaySession?: (sessionId: string) => Promise<void>;
   evidenceAllowed?: (sessionId: string) => boolean;
   isSensitiveSession?: (sessionId: string) => boolean;
   vaultFill?: (
@@ -97,7 +98,14 @@ export class WorkflowService {
   private closed = false;
   private readonly replayGuards = new Map<
     string,
-    { release: () => void; task: Promise<void>; check: () => void }
+    {
+      sessionId: string;
+      release: () => void;
+      task: Promise<void>;
+      check: () => void;
+      closing?: Promise<void>;
+      closed?: boolean;
+    }
   >();
   private readonly now: () => Date;
   constructor(private readonly deps: Dependencies) {
@@ -146,7 +154,8 @@ export class WorkflowService {
         const run = (event.data as { run?: WorkflowRun })?.run;
         if (run?.metadata?.productProcedureId)
           void this.refreshReceipt(run).catch((e) => this.deps.onError?.(e));
-        if (run && terminal.has(run.status)) this.replayGuards.get(run.id)?.release();
+        if (run && terminal.has(run.status))
+          void this.finishReplay(run.id).catch((error) => this.deps.onError?.(error));
       }
       if (event.type === "watcher.run")
         void this.onWatcher(event.id, event.data).catch((e) => this.deps.onError?.(e));
@@ -169,8 +178,9 @@ export class WorkflowService {
     this.closed = true;
     clearInterval(this.timer);
     this.unsubscribe?.();
-    for (const guard of this.replayGuards.values()) guard.release();
-    await Promise.allSettled([...this.replayGuards.values()].map((g) => g.task));
+    const guards = [...this.replayGuards.values()];
+    await Promise.allSettled([...this.replayGuards.keys()].map((id) => this.finishReplay(id)));
+    await Promise.allSettled(guards.filter((g) => g.closed).map((g) => g.task));
     await this.tickTask;
     await this.pending;
   }
@@ -181,6 +191,17 @@ export class WorkflowService {
       () => undefined,
     );
     return task;
+  }
+  private async finishReplay(id: string) {
+    const guard = this.replayGuards.get(id);
+    if (!guard) return;
+    guard.closing ??= (async () => {
+      await this.deps.releaseReplaySession!(guard.sessionId);
+      guard.closed = true;
+      guard.release();
+      await guard.task.catch(() => {});
+    })();
+    return guard.closing;
   }
   private systemActor(id: string): WorkflowActor {
     return { id, role: "agent", authenticated: true };
@@ -1026,6 +1047,12 @@ export class WorkflowService {
 
   async startReplay(input: unknown, actor: WorkflowActor): Promise<ReplayRecord> {
     this.assertActor(actor);
+    if (!this.deps.releaseReplaySession)
+      throw new WorkflowError(
+        "replay_cleanup_unavailable",
+        "Regression replay requires a dedicated-session cleanup adapter",
+        503,
+      );
     const parsed = ReplayInputSchema.parse(input);
     const baseline = await this.deps.runtime.get(parsed.baselineRunId, actor);
     this.authorize(baseline.ownerId, actor);
@@ -1163,6 +1190,12 @@ export class WorkflowService {
   }
   private async guardReplay(ctx: StepContext) {
     if (ctx.run.metadata?.productReplay !== true) return;
+    if (!this.deps.releaseReplaySession)
+      throw new WorkflowError(
+        "replay_cleanup_unavailable",
+        "Regression replay requires a dedicated-session cleanup adapter",
+        503,
+      );
     const existing = this.replayGuards.get(ctx.run.id);
     if (existing) {
       existing.check();
@@ -1223,7 +1256,12 @@ export class WorkflowService {
         });
       })
       .finally(() => this.replayGuards.delete(ctx.run.id));
-    this.replayGuards.set(ctx.run.id, { release, task, check: () => check() });
+    this.replayGuards.set(ctx.run.id, {
+      sessionId: session.id,
+      release,
+      task,
+      check: () => check(),
+    });
     await started;
     await this.deps.store.write(`workflows/replay-runtime/${ctx.run.id}.json`, {
       observedBrowserVersion: await session.cdpService.getBrowserInstance()?.version(),

@@ -30,6 +30,7 @@ interface Options {
   actor?: (request: FastifyRequest) => WorkflowActor;
   replayOrigins?: string[];
   replayAllowPrivateNetworks?: boolean;
+  releaseReplaySession?: (sessionId: string) => Promise<void>;
   evidenceAllowed?: (sessionId: string) => boolean;
   isSensitiveSession?: (sessionId: string) => boolean;
   vaultFill?: (
@@ -60,6 +61,11 @@ const plugin: FastifyPluginAsync<Options> = async (server, options) => {
     runtime,
     events: server.events,
     replayOrigins,
+    releaseReplaySession:
+      options.releaseReplaySession ??
+      (async (sessionId) => {
+        await server.sessionService.endSession(sessionId);
+      }),
     evidenceAllowed: options.evidenceAllowed,
     isSensitiveSession: options.isSensitiveSession,
     vaultFill: options.vaultFill,

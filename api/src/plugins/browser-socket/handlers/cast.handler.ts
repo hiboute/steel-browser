@@ -12,13 +12,9 @@ export const castHandler: WebSocketHandler = {
     context: WebSocketHandlerContext,
   ) => {
     context.fastify.log.info("Connecting to cast...");
-    await handleCastSession(
-      request,
-      socket,
-      head,
-      context.wss,
-      context.session ?? context.fastify.sessionService.activeSession,
-      context.params,
+    const session = context.session ?? context.fastify.sessionService.activeSession;
+    await handleCastSession(request, socket, head, context.wss, session, context.params, () =>
+      context.fastify.sessionService.touch(session.id, "cast"),
     );
   },
 };

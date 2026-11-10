@@ -6,12 +6,12 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:3000",
+        target: process.env.STEEL_DEV_API_URL || "http://localhost:3000",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
       "/ws": {
-        target: "ws://localhost:3000",
+        target: (process.env.STEEL_DEV_API_URL || "http://localhost:3000").replace(/^http/, "ws"),
         ws: true,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ws/, ""),

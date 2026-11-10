@@ -4,6 +4,8 @@ import { ChevronRightIcon, ConsoleIcon, DevToolsIcon, RailIcon } from "./icons";
 import { NewSessionButton } from "./new-session";
 import { ReleaseButton } from "./release-button";
 import { SaveCookiesButton } from "./cookie-library";
+import { SessionActions, deadline } from "./session-tools";
+import { viewNames, type WorkspaceView } from "./workspace-pages";
 
 export function TopBar({
   session,
@@ -14,6 +16,7 @@ export function TopBar({
   devtoolsOpen,
   onToggleDevtools,
   onSessionChange,
+  view = "sessions",
 }: {
   session: SessionDetails | null | undefined;
   railOpen: boolean;
@@ -23,6 +26,7 @@ export function TopBar({
   devtoolsOpen: boolean;
   onToggleDevtools: () => void;
   onSessionChange: (session?: SessionDetails) => void;
+  view?: WorkspaceView;
 }) {
   const consoleLabel = consoleOpen ? "Hide logs" : "Show logs";
   const devtoolsLabel = devtoolsOpen ? "Hide DevTools" : "Show DevTools";
@@ -66,26 +70,34 @@ export function TopBar({
         </button>
       )}
       <nav className="crumbs" aria-label="Breadcrumb">
-        <span className="crumb-parent">Sessions</span>
-        {session && (
+        <span className="crumb-parent">{viewNames[view]}</span>
+        {session && view === "sessions" && (
           <>
             <ChevronRightIcon className="crumb-sep" />
             <span className="crumb-current" aria-current="page" title={session.id}>
-              {session.id}
+              {session.name || session.id}
             </span>
             <CopyButton className="crumb-copy" value={session.id} label="Copy session ID" />
+            <span className="expiry-label">{deadline(session)}</span>
           </>
         )}
       </nav>
-      {session && (
-        <div className="top-bar-actions">
-          {(session.status === "live" || session.status === "idle") && <SaveCookiesButton session={session} />}
-          {session.status === "live" && (
+      <div className="top-bar-actions">
+        {session && view === "sessions" && (
+          <SessionActions session={session} onChange={onSessionChange} />
+        )}
+        {session &&
+          view === "sessions" &&
+          (session.status === "live" || session.status === "idle") && (
+            <SaveCookiesButton session={session} />
+          )}
+        {session &&
+          view === "sessions" &&
+          (session.status === "live" || session.status === "parked") && (
             <ReleaseButton sessionId={session.id} onReleased={() => onSessionChange()} />
           )}
-          <NewSessionButton onStarted={onSessionChange} />
-        </div>
-      )}
+        <NewSessionButton onStarted={onSessionChange} />
+      </div>
     </header>
   );
 }

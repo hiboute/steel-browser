@@ -11,7 +11,7 @@ import type { Duplex } from "node:stream";
 
 const HOST = process.env.HOST ?? "0.0.0.0";
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const SHUTDOWN_TIMEOUT_MS = 10_000;
+const SHUTDOWN_TIMEOUT_MS = 35_000;
 
 export const server = fastify({
   logger: loggingConfig[process.env.NODE_ENV ?? "development"] ?? true,

@@ -21,6 +21,13 @@ function detailsFor(session: SessionDetails): Detail[] {
     { label: "Duration", value: formatDuration(session.duration) },
     { label: "Timeout", value: session.timeout > 0 ? formatDuration(session.timeout) : "None" },
     {
+      label: "Idle limit",
+      value: session.idleTimeout ? formatDuration(session.idleTimeout) : "None",
+    },
+    { label: "Network", value: session.egress || "Default" },
+    { label: "Client", value: session.client || "Anonymous" },
+    { label: "Resume count", value: String(session.resumeCount ?? 0) },
+    {
       label: "Viewport",
       value: session.dimensions
         ? `${session.dimensions.width} × ${session.dimensions.height}`

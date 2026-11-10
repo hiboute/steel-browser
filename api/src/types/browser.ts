@@ -48,6 +48,7 @@ export interface BrowserLauncherOptions {
     height: number;
   } | null;
   userDataDir?: string;
+  downloadPath?: string;
   userPreferences?: Record<string, any>;
   extra?: BrowserLaunchExtra;
   credentials?: CredentialsOptions;

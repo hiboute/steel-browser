@@ -6,6 +6,7 @@ import {
   PDFRequestBody,
 } from "../actions/actions.schema.js";
 import { SessionContextSchema } from "../../services/context/types.js";
+import { env } from "../../env.js";
 
 const deviceConfigSchema = z
   .object({
@@ -25,7 +26,39 @@ export const SessionCredentials = z
   .optional()
   .describe("Configuration for session credentials");
 
-const CreateSession = z.object({
+const duration = z.number().int().min(0).max(2_147_483_647);
+const SessionSettings = z.object({
+  name: z.string().max(80).optional(),
+  labels: z
+    .record(z.string().max(128), z.string().max(1024))
+    .refine((value) => Object.keys(value).length <= 20, "At most 20 labels")
+    .meta({ maxProperties: 20 })
+    .optional(),
+  timeout: duration
+    .optional()
+    .describe("Maximum live lifetime in milliseconds; zero disables the limit"),
+  idleTimeout: duration
+    .optional()
+    .describe(
+      "Release or park after this many milliseconds without activity; zero disables the limit",
+    ),
+  onExpire: z.enum(["park", "release"]).optional(),
+  keepAlive: z.boolean().optional().describe("Exempt from idle expiry, but not maximum lifetime"),
+});
+const CreateSession = SessionSettings.extend({
+  egress: z.string().max(128).optional(),
+  record: z.boolean().optional(),
+  cookieSetWriteBack: z.boolean().optional(),
+  fingerprint: z.any().optional(),
+  queueTimeout: z
+    .number()
+    .int()
+    .min(0)
+    .max(env.SESSION_QUEUE_MAX_MS ?? 600_000)
+    .optional()
+    .describe(
+      "Maximum time in milliseconds to wait FIFO for a browser slot. Zero fails immediately when full.",
+    ),
   sessionId: z.string().uuid().optional().describe("Unique identifier for the session"),
   proxyUrl: z.string().optional().describe("Proxy URL to use for the session"),
   userAgent: z.string().optional().describe("User agent string to use for the session"),
@@ -86,7 +119,7 @@ const CreateSession = z.object({
     .describe("Route the session through a VPN (instead of proxyUrl)."),
   browserProfile: z
     .string()
-    .regex(/^[a-zA-Z0-9._-]{1,64}$/)
+    .regex(/^(?!\.\.?$)[a-zA-Z0-9._-]{1,64}$/)
     .optional()
     .describe(
       "Saved browser: run the session in this named, persistent Chrome profile (created on first use). It keeps cookies, storage and its fingerprint across sessions, so sites see the same device. One live session per profile.",
@@ -117,7 +150,30 @@ const CreateSession = z.object({
 const SessionDetails = z.object({
   id: z.string().uuid().describe("Unique identifier for the session"),
   createdAt: z.string().datetime().describe("Timestamp when the session started"),
-  status: z.enum(["idle", "live", "released", "failed"]).describe("Status of the session"),
+  status: z
+    .enum(["idle", "live", "parked", "released", "failed"])
+    .describe("Status of the session"),
+  name: z.string().optional(),
+  labels: z.record(z.string(), z.string()).optional(),
+  client: z.string().optional(),
+  slot: z.number().int().optional(),
+  lastActivityAt: z.string().datetime().optional(),
+  idleTimeout: duration.optional(),
+  onExpire: z.enum(["park", "release"]).optional(),
+  keepAlive: z.boolean().optional(),
+  expiresAt: z.string().datetime().nullable().optional(),
+  parkedAt: z.string().datetime().optional(),
+  parkReason: z.enum(["manual", "idle", "timeout", "preempted", "shutdown"]).optional(),
+  resumeCount: z.number().int().optional(),
+  releaseReason: z
+    .enum(["api", "idle", "timeout", "disconnected", "parked_expired", "shutdown"])
+    .optional(),
+  cookieSets: z.array(z.string()).optional(),
+  cookieSetWriteBack: z.boolean().optional(),
+  egress: z.string().optional(),
+  recording: z.boolean().optional(),
+  handoff: z.any().nullable().optional(),
+  tabs: z.array(z.object({ url: z.string(), title: z.string(), active: z.boolean() })).optional(),
   duration: z.number().int().describe("Duration of the session in milliseconds"),
   eventCount: z.number().int().describe("Number of events processed in the session"),
   dimensions: z
@@ -154,6 +210,68 @@ const SessionDetails = z.object({
 const ReleaseSession = SessionDetails.merge(
   z.object({ success: z.boolean().describe("Indicates if the session was successfully released") }),
 );
+
+const ReleaseSessionsRequest = z
+  .object({
+    sessionId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe("Release only this session; omit to release all live sessions"),
+  })
+  .nullable();
+
+const PoolStatus = z.object({
+  maxSessions: z.number().int(),
+  live: z.number().int(),
+  free: z.number().int(),
+  queued: z.number().int(),
+  parked: z.number().int().optional(),
+  memory: z.any().optional(),
+  limits: z.record(z.string(), z.any()).optional(),
+  background: z.object({ running: z.number(), max: z.number() }).optional(),
+  queue: z.array(
+    z.object({
+      position: z.number().int(),
+      sessionId: z.string(),
+      waitingMs: z.number(),
+      client: z.string().optional(),
+      kind: z.string().optional(),
+    }),
+  ),
+  slots: z.array(
+    z.object({
+      index: z.number().int(),
+      cdpPort: z.number().int(),
+      primary: z.boolean(),
+      state: z.enum(["free", "starting", "live", "stopping"]),
+      sessionId: z.string().nullable(),
+      sessionName: z.string().optional(),
+      pid: z.number().nullable().optional(),
+      rssBytes: z.number().optional(),
+      pages: z.number().optional(),
+    }),
+  ),
+});
+
+const PoolFullResponse = z.object({
+  success: z.literal(false),
+  code: z.enum(["pool_full", "low_memory"]),
+  message: z.string(),
+  pool: z.object({ max: z.number().int(), live: z.number().int(), queued: z.number().int() }),
+});
+
+const PoolClosedResponse = z.object({
+  success: z.literal(false),
+  code: z.literal("shutting_down"),
+  message: z.string(),
+});
+
+const SessionNotFoundResponse = z.object({
+  success: z.literal(false),
+  code: z.literal("session_not_found"),
+  message: z.string(),
+});
 
 const RecordedEvents = z.object({
   events: z.array(z.any()).describe("Events to emit"),
@@ -225,11 +343,17 @@ export type SessionStreamRequest = FastifyRequest<{ Querystring: SessionStreamQu
 
 export const browserSchemas = {
   CreateSession,
+  SessionSettings,
   SessionDetails,
   MultipleSessions,
   SessionContextSchema,
   RecordedEvents,
   ReleaseSession,
+  ReleaseSessionsRequest,
+  PoolStatus,
+  PoolFullResponse,
+  PoolClosedResponse,
+  SessionNotFoundResponse,
   SessionStreamQuery,
   SessionStreamResponse,
   SessionLiveDetailsResponse,

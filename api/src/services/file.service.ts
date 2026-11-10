@@ -17,6 +17,7 @@ export interface FileServiceOptions {
   baseFilesPath?: string;
   prebuiltArchiveDir?: string;
   watchFiles?: boolean;
+  sessionFilesPath?: string;
 }
 
 export class FileService {
@@ -30,6 +31,9 @@ export class FileService {
   private archiveDirty = true;
   private archiveDebounceTime = 500;
   private debouncedCreateArchive: DebouncedFunc<() => Promise<string | null>>;
+  private sessionServices = new Map<string, FileService>();
+  private sessionFilesPath: string;
+  private watchFiles: boolean;
 
   public constructor(options: FileServiceOptions = {}) {
     this.baseFilesPath =
@@ -37,6 +41,10 @@ export class FileService {
       (env.NODE_ENV === "development" ? path.join(tmpdir(), "files") : "/files");
     this.prebuiltArchiveDir = options.prebuiltArchiveDir ?? "/tmp/.steel";
     this.prebuiltArchivePath = path.join(this.prebuiltArchiveDir, "files.zip");
+    this.sessionFilesPath = path.resolve(
+      options.sessionFilesPath ?? path.join(process.env.STEEL_DATA_DIR || "data", "files"),
+    );
+    this.watchFiles = options.watchFiles !== false;
 
     fs.mkdirSync(this.baseFilesPath, { recursive: true });
 
@@ -53,6 +61,73 @@ export class FileService {
       FileService.instance = new FileService();
     }
     return FileService.instance;
+  }
+
+  /** Session folders do not share a watcher, archive, or cleanup with the idle browser. */
+  public forSession(sessionId: string): FileService {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId)) throw new Error("Invalid session id");
+    let service = this.sessionServices.get(sessionId);
+    if (!service) {
+      service = new FileService({
+        baseFilesPath: path.join(this.sessionFilesPath, sessionId),
+        prebuiltArchiveDir: path.join(this.sessionFilesPath, ".archives", sessionId),
+        watchFiles: false,
+        sessionFilesPath: this.sessionFilesPath,
+      });
+      this.sessionServices.set(sessionId, service);
+    }
+    return service;
+  }
+
+  public async hasSession(sessionId: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId)) return false;
+    return this.exists(path.join(this.sessionFilesPath, sessionId));
+  }
+
+  public async markReleased(sessionId: string): Promise<void> {
+    this.forSession(sessionId);
+    const metadata = path.join(this.sessionFilesPath, ".released");
+    await fs.promises.mkdir(metadata, { recursive: true });
+    await fs.promises.writeFile(path.join(metadata, sessionId), String(Date.now()), {
+      mode: 0o600,
+    });
+  }
+
+  public async markLive(sessionId: string): Promise<void> {
+    this.forSession(sessionId);
+    await fs.promises.rm(path.join(this.sessionFilesPath, ".released", sessionId), { force: true });
+  }
+
+  public async sweepReleased(activeIds: Set<string>, retentionHours = 72): Promise<void> {
+    const metadata = path.join(this.sessionFilesPath, ".released");
+    // A process crash may prevent the release hook from writing its timestamp.
+    // Start a full retention window for orphaned directories found at startup.
+    for (const id of await fs.promises.readdir(this.sessionFilesPath).catch(() => [])) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id) || activeIds.has(id)) continue;
+      if (!(await this.exists(path.join(metadata, id)))) await this.markReleased(id);
+    }
+    for (const id of await fs.promises.readdir(metadata).catch(() => [])) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id) || activeIds.has(id)) continue;
+      const releasedAt = Number(await fs.promises.readFile(path.join(metadata, id), "utf8"));
+      if (!Number.isFinite(releasedAt) || Date.now() - releasedAt < retentionHours * 3_600_000)
+        continue;
+      await this.sessionServices.get(id)?.close();
+      this.sessionServices.delete(id);
+      await fs.promises.rm(path.join(this.sessionFilesPath, id), { recursive: true, force: true });
+      await fs.promises.rm(path.join(this.sessionFilesPath, ".archives", id), {
+        recursive: true,
+        force: true,
+      });
+      await fs.promises.rm(path.join(metadata, id), { force: true });
+    }
+  }
+
+  public async close(): Promise<void> {
+    this.debouncedCreateArchive.cancel();
+    await this.fileWatcher?.close();
+    await this.waitForArchiveToFinish();
+    await Promise.all([...this.sessionServices.values()].map((service) => service.close()));
+    this.sessionServices.clear();
   }
 
   private async handleFileAdd(filePath: string) {
@@ -351,6 +426,8 @@ export class FileService {
   }
 
   public async getPrebuiltArchivePath(): Promise<string> {
+    // Chrome writes downloads directly; scoped stores have no background watcher.
+    if (!this.watchFiles) this.archiveDirty = true;
     this.debouncedCreateArchive.cancel();
 
     while (this.currentArchivePromise || this.archiveDirty) {

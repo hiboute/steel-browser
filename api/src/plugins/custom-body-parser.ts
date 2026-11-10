@@ -7,16 +7,11 @@ const customBodyParser: FastifyPluginAsync = async (fastify: FastifyInstance) =>
     { parseAs: "buffer" },
     function (req, body, done) {
       try {
-        switch (true) {
-          case req.url.includes("/release"):
-            // Skip parsing for release endpoints
-            done(null, null);
-            break;
-
-          default:
-            // Parse JSON for all other requests
-            done(null, JSON.parse(body.toString()));
-        }
+        // Older clients send an empty JSON body when releasing a session.
+        // Preserve that compatibility while still parsing a supplied sessionId.
+        const release = /^\/v1\/sessions\/(?:[^/?]+\/)?release\/?$/.test(req.url.split("?", 1)[0]);
+        if (release && body.length === 0) done(null, null);
+        else done(null, JSON.parse(body.toString()));
       } catch (error) {
         done(Object.assign(error as Error, { statusCode: 400 }), undefined);
       }

@@ -20,3 +20,4 @@ out
 *.env
 dist
 .aider*
+/ui/design-preview/

@@ -22,6 +22,7 @@ export async function handleCastSession(
   wss: Server,
   session: Session,
   params: Record<string, string> | undefined,
+  onActivity: () => void = () => {},
 ): Promise<void> {
   // The idle session is the primary browser between sessions: it runs and can
   // be watched like a live one. Only a released session has no browser.
@@ -297,6 +298,11 @@ export async function handleCastSession(
               return;
             }
 
+            if (
+              ["keyEvent", "navigation", "closeTab", "getSelectedText"].includes(type) ||
+              (type === "mouseEvent" && (data as MouseEvent).event.type !== "mouseMoved")
+            )
+              onActivity();
             switch (type) {
               case "mouseEvent": {
                 const { event } = data as MouseEvent;

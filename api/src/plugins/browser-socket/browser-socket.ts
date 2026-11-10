@@ -4,6 +4,8 @@ import { Duplex } from "stream";
 import { WebSocketServer } from "ws";
 import { WebSocketRegistryService } from "../../services/websocket-registry.service.js";
 import { WebSocketHandler, WebSocketHandlerContext } from "../../types/websocket.js";
+import { env } from "../../env.js";
+import { observeCdpActivity } from "../../services/session-activity.js";
 import { defaultHandlers } from "./handlers/index.js";
 
 export interface BrowserSocketOptions {
@@ -98,6 +100,10 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
       const scoped = SCOPED_SOCKET.exec(pathname);
       const sessionId = scoped?.[1] ?? params.sessionId;
       const session = sessionId ? fastify.sessionService.findSocketSession(sessionId) : undefined;
+      if (sessionId && fastify.sessionService.isParked(sessionId)) {
+        rejectUpgrade(socket, "409 Conflict");
+        return;
+      }
       if (sessionId && !session) {
         fastify.log.warn({ sessionId }, "Rejecting socket for unknown session");
         rejectUpgrade(socket, "404 Not Found");
@@ -112,7 +118,20 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
         cdpService: session?.cdpService ?? fastify.cdpService,
       };
 
+      const attachActivity = () => {
+        const owner =
+          session ??
+          fastify.sessionService?.listSessions().find((s) => s.cdpService === context.cdpService);
+        if (owner?.status === "live")
+          observeCdpActivity(
+            socket,
+            head,
+            () => fastify.sessionService.touch(owner.id, "cdp"),
+            env.IDLE_IGNORED_CDP_METHODS,
+          );
+      };
       if (scoped?.[2] === "cdp") {
+        attachActivity();
         fastify.log.info({ sessionId }, "Connecting to session CDP...");
         try {
           await context.cdpService.proxyWebSocket(request, socket, head);
@@ -135,6 +154,7 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
           socket.destroy();
         }
       } else {
+        attachActivity();
         fastify.log.info("Connecting to CDP...");
         try {
           await context.cdpService.proxyWebSocket(request, socket, head);

@@ -36,7 +36,12 @@ function createMockChildProcess(): ChildProcess & {
   };
   mockChild.stdout = new EventEmitter() as never;
   mockChild.stderr = new EventEmitter() as never;
-  mockChild.kill = vi.fn().mockReturnValue(true) as never;
+  Object.assign(mockChild, { exitCode: null, signalCode: null });
+  mockChild.kill = vi.fn((signal: NodeJS.Signals) => {
+    Object.assign(mockChild, { signalCode: signal });
+    mockChild.emit("close", null, signal);
+    return true;
+  }) as never;
   return mockChild;
 }
 
@@ -74,7 +79,7 @@ describe("SeleniumService", () => {
         expect.objectContaining({ err: spawnError }),
         expect.stringContaining("Selenium process error"),
       );
-      expect(() => service.close()).not.toThrow();
+      await expect(service.close()).resolves.toBeUndefined();
     });
 
     it("rejects when the child process exits prematurely before becoming ready", async () => {
@@ -95,7 +100,7 @@ describe("SeleniumService", () => {
         expect.objectContaining({ code: 1 }),
         expect.stringContaining("Selenium process exited"),
       );
-      expect(() => service.close()).not.toThrow();
+      await expect(service.close()).resolves.toBeUndefined();
     });
 
     it("resolves when the selenium standalone server starts successfully", async () => {
@@ -119,7 +124,7 @@ describe("SeleniumService", () => {
       expect(mockChild.stderr.listenerCount("data")).toBe(1);
 
       // Verify close kills the running process
-      service.close();
+      await service.close();
       expect(mockChild.kill).toHaveBeenCalledWith("SIGINT");
 
       mockChild.emit("close", null, "SIGINT");
@@ -163,7 +168,7 @@ describe("SeleniumService", () => {
 
       await expect(launchPromise).resolves.toBeUndefined();
       expect(service.getSeleniumServerUrl()).toBe("http://localhost:4444");
-      service.close();
+      await service.close();
     });
 
     it("resolves when more than 4KB follows the startup message in one chunk", async () => {
@@ -181,7 +186,7 @@ describe("SeleniumService", () => {
       );
 
       await expect(launchPromise).resolves.toBeUndefined();
-      service.close();
+      await service.close();
     });
 
     it("recovers and resolves after a failed launch", async () => {
@@ -200,7 +205,7 @@ describe("SeleniumService", () => {
       mockChild2.stdout.emit("data", Buffer.from("Started Selenium Standalone"));
       await expect(secondLaunch).resolves.toBeUndefined();
       expect(service.getSeleniumServerUrl()).toBe("http://localhost:4444");
-      service.close();
+      await service.close();
       expect(mockChild2.kill).toHaveBeenCalledWith("SIGINT");
     });
 
@@ -222,7 +227,7 @@ describe("SeleniumService", () => {
       await firstLaunch;
 
       const secondLaunch = service.launch({} as never);
-      await Promise.resolve();
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2));
 
       expect(mockChild1.kill).toHaveBeenCalledWith("SIGINT");
 
@@ -244,23 +249,19 @@ describe("SeleniumService", () => {
       const service = new SeleniumService(logger as never);
 
       const firstLaunch = service.launch({} as never);
-      // Before firstLaunch settles, second launch starts and supersedes mockChild1
+      const firstRejected = expect(firstLaunch).rejects.toThrow("exited prematurely");
+      mockChild1.kill.mockReturnValue(true).mockImplementation(() => true);
+      // A replacement launch waits for the previous process to exit.
       const secondLaunch = service.launch({} as never);
-
-      // Flush microtasks so the second spawn occurs before mockChild1 fails;
-      // otherwise the test is vacuous (mockChild2 not yet spawned).
       await Promise.resolve();
-      await Promise.resolve();
-
-      // Non-vacuity proof: second launch actually spawned and cleaned up the first.
-      expect(spawn).toHaveBeenCalledTimes(2);
+      expect(spawn).toHaveBeenCalledTimes(1);
       expect(mockChild1.kill).toHaveBeenCalledWith("SIGINT");
+      mockChild1.emit("close", 1);
+      await firstRejected;
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2));
 
-      // Now mockChild1 fails during its startup
+      // Late notifications from the old process cannot affect the new one.
       mockChild1.emit("error", new Error("first launch failed"));
-      await expect(firstLaunch).rejects.toThrow("first launch failed");
-
-      // mockChild2 should NOT have been killed by mockChild1's catch block
       expect(mockChild2.kill).not.toHaveBeenCalled();
 
       // mockChild1 emits close
@@ -271,8 +272,45 @@ describe("SeleniumService", () => {
       await secondLaunch;
 
       // Closing service should target mockChild2 (it was not nullified by mockChild1's close)
-      service.close();
+      await service.close();
       expect(mockChild2.kill).toHaveBeenCalledWith("SIGINT");
+    });
+
+    it("keeps close pending until process exit and shares concurrent closes", async () => {
+      const child = createMockChildProcess();
+      child.kill.mockImplementation(() => true);
+      vi.mocked(spawn).mockReturnValue(child);
+      const service = new SeleniumService(createMockLogger() as never);
+      const launch = service.launch({} as never);
+      child.stdout.emit("data", "Started Selenium Standalone");
+      await launch;
+      const closed = service.close();
+      expect(service.close()).toBe(closed);
+      const done = vi.fn();
+      void closed.then(done);
+      await Promise.resolve();
+      expect(done).not.toHaveBeenCalled();
+      child.emit("close", 0);
+      await closed;
+      expect(child.kill).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects a stuck shutdown and retains the process for cleanup retry", async () => {
+      vi.useFakeTimers();
+      const child = createMockChildProcess();
+      child.kill.mockImplementation(() => true);
+      vi.mocked(spawn).mockReturnValue(child);
+      const service = new SeleniumService(createMockLogger() as never);
+      const launch = service.launch({} as never);
+      child.stdout.emit("data", "Started Selenium Standalone");
+      await launch;
+      const rejected = expect(service.close()).rejects.toThrow("did not stop");
+      await vi.advanceTimersByTimeAsync(5000);
+      await rejected;
+      const retry = service.close();
+      expect(child.kill).toHaveBeenCalledTimes(2);
+      child.emit("close", 0);
+      await retry;
     });
   });
 });

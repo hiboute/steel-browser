@@ -10,6 +10,14 @@ async function routes(server: FastifyInstance) {
     "/selenium/wd/*",
     { schema: { hide: true } },
     async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!["GET", "HEAD"].includes(request.method)) {
+        const session = server.sessionService.listSessions().find((session) => session.isSelenium);
+        if (session) {
+          const release = server.sessionService.holdActivity(session.id);
+          reply.raw.once("finish", release);
+          reply.raw.once("close", release);
+        }
+      }
       if (request.url === "/selenium/wd/session" && request.method === "POST") {
         const body = request.body as any;
         if (!body.capabilities) {

@@ -86,8 +86,10 @@ const browserInstancePlugin: FastifyPluginAsync = async (fastify, _options) => {
   );
 
   fastify.addHook("onListen", async function () {
-    this.log.info("Launching default browser...");
-    await cdpService.launch();
+    if (!cdpService.isRunning() && browserPool.primary.state === "free") {
+      this.log.info("Launching default browser...");
+      await cdpService.launch();
+    }
   });
 
   fastify.addHook("onClose", async () => {

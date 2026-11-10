@@ -97,7 +97,7 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
       const pathname = url.split("?", 1)[0];
       const scoped = SCOPED_SOCKET.exec(pathname);
       const sessionId = scoped?.[1] ?? params.sessionId;
-      const session = sessionId ? fastify.sessionService.getSession(sessionId) : undefined;
+      const session = sessionId ? fastify.sessionService.findSocketSession(sessionId) : undefined;
       if (sessionId && !session) {
         fastify.log.warn({ sessionId }, "Rejecting socket for unknown session");
         rejectUpgrade(socket, "404 Not Found");

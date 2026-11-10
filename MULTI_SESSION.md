@@ -60,3 +60,29 @@ The library holds live credentials: keep the API behind authentication.
 A session without `persist` runs on a fresh profile directory that is deleted
 on release, so nothing (cookies, storage, tabs) carries over to the next
 session on the same browser. `persist: true` keeps one profile per slot.
+
+## Saved browsers
+
+`browserProfile: "<name>"` on `POST /v1/sessions` runs the session in a named
+Chrome profile kept under `BROWSER_PROFILES_DIR` (default `./browser-profiles`;
+mount a volume there). It is created on first use and keeps everything a real
+browser keeps (cookies, storage, IndexedDB, device keys, history), plus
+`steel-fingerprint.json`, the fingerprint it got on first use and reuses on
+every start, so a site sees the same device each time. A cookie set only
+copies cookies into a fresh browser, which some sites (Google) reject.
+
+One session per saved browser at a time (409 otherwise); release frees it.
+`GET /v1/browser-profiles` lists them (`inUseBy`), `DELETE
+/v1/browser-profiles/<name>` deletes one that is not in use. The UI's Start
+session dialog has a "Saved browser" field. `SessionService.lockProfile`,
+`unlockProfile`, `profileOf` and `profileHolder` are the lock's only API.
+
+## NordVPN
+
+`vpn: { provider: "nordvpn", country?: "FR" }` on `POST /v1/sessions` routes
+the session through a recommended NordVPN HTTPS proxy server (port 89) in
+that country, using the service credentials in `NORDVPN_SERVICE_USER` /
+`NORDVPN_SERVICE_PASS` (Nord Account > Set up NordVPN manually > Service
+credentials). The session's `proxy` shows `nordvpn:<host>`, never the
+credentials. `GET /v1/vpn` says whether it is set up; the UI shows a NordVPN
+switch only then.

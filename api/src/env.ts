@@ -100,6 +100,11 @@ const envSchema = z.object({
     ),
   COOKIE_LIBRARY_DIR: z.string().optional(),
   COOKIE_LIBRARY_KEY: z.string().optional(),
+  /** Saved browsers: one persistent Chrome profile directory per name. */
+  BROWSER_PROFILES_DIR: z.string().optional(),
+  /** NordVPN service credentials, for sessions started with `vpn`. */
+  NORDVPN_SERVICE_USER: z.string().optional(),
+  NORDVPN_SERVICE_PASS: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

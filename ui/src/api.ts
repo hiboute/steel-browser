@@ -48,7 +48,11 @@ export function isPrimarySession(session: SessionDetails) {
 }
 
 export function createSession(
-  body: CreateSession & { cookieSets?: string[] },
+  body: CreateSession & {
+    cookieSets?: string[];
+    browserProfile?: string;
+    vpn?: { provider: "nordvpn"; country?: string };
+  },
 ): Promise<SessionDetails> {
   return request<SessionDetails>("/v1/sessions", {
     method: "POST",
@@ -74,6 +78,21 @@ export type CookieSetSummary = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type BrowserProfileSummary = {
+  name: string;
+  inUseBy: string | null;
+  updatedAt: string | null;
+  fingerprint: boolean;
+};
+
+export async function listVpnProviders(signal?: AbortSignal) {
+  return request<{ providers: { id: string; configured: boolean }[] }>("/v1/vpn", { signal });
+}
+
+export async function listBrowserProfiles(signal?: AbortSignal) {
+  return request<{ profiles: BrowserProfileSummary[] }>("/v1/browser-profiles", { signal });
+}
 
 export async function listCookieSets(signal?: AbortSignal) {
   return request<{ sets: CookieSetSummary[]; encrypted: boolean }>("/v1/cookie-library", {

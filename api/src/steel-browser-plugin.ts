@@ -1,6 +1,8 @@
 import fastifyView from "@fastify/view";
 import cookieLibraryPlugin from "./plugins/cookie-library.js";
 import cookieLibraryRoutes from "./modules/cookie-library/cookie-library.routes.js";
+import browserProfilesRoutes from "./modules/browser-profiles/browser-profiles.routes.js";
+import vpnRoutes from "./modules/vpn/vpn.routes.js";
 import { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import path, { dirname } from "node:path";
@@ -93,6 +95,8 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   await fastify.register(seleniumRoutes);
   await fastify.register(filesRoutes, { prefix: "/v1" });
   await fastify.register(cookieLibraryRoutes, { prefix: "/v1" });
+  await fastify.register(browserProfilesRoutes, { prefix: "/v1" });
+  await fastify.register(vpnRoutes, { prefix: "/v1" });
   if (commands) {
     await fastify.register(commands.default, { prefix: "/v1" });
   }

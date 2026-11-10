@@ -1,5 +1,11 @@
-import { useRef, useState, type FormEvent } from "react";
-import { createSession, type SessionDetails } from "../api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  createSession,
+  listBrowserProfiles,
+  listVpnProviders,
+  type BrowserProfileSummary,
+  type SessionDetails,
+} from "../api";
 import { CookieSetPicker } from "./cookie-library";
 import { KeyChip } from "./key-chip";
 import { Segmented } from "./segmented";
@@ -37,9 +43,14 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
         deviceConfig: { device },
         dimensions: width && height ? { width: Number(width), height: Number(height) } : undefined,
         userAgent: text("userAgent"),
-        proxyUrl: text("proxyUrl"),
         blockAds: data.get("blockAds") === "on",
         cookieSets: data.getAll("cookieSets").map(String),
+        browserProfile: text("browserProfile"),
+        vpn:
+          data.get("vpn") === "nordvpn"
+            ? { provider: "nordvpn", country: text("vpnCountry")?.toUpperCase() }
+            : undefined,
+        proxyUrl: data.get("vpn") === "nordvpn" ? undefined : text("proxyUrl"),
       });
       dialog.current?.close();
       form.reset();
@@ -151,6 +162,8 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
                 defaultChecked
               />
             </label>
+            <SavedBrowserField key={`b${opened}`} />
+            <VpnField key={`v${opened}`} />
             <CookieSetPicker key={opened} />
             {error && (
               <p className="dialog-error" role="alert">
@@ -174,5 +187,91 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
         </form>
       </dialog>
     </>
+  );
+}
+
+/**
+ * Saved browser: run the session in a named Chrome profile kept on disk, so
+ * a site sees the same browser (and its login) every time. Empty = a fresh
+ * throwaway browser.
+ */
+function SavedBrowserField() {
+  const [profiles, setProfiles] = useState<BrowserProfileSummary[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    listBrowserProfiles(controller.signal)
+      .then(({ profiles }) => setProfiles(profiles))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  return (
+    <label className="field">
+      <span>Saved browser</span>
+      <input
+        className="input"
+        name="browserProfile"
+        list="saved-browsers"
+        placeholder="None (fresh browser)"
+        pattern="[a-zA-Z0-9._\-]{1,64}"
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <datalist id="saved-browsers">
+        {profiles.map((p) => (
+          <option key={p.name} value={p.name}>
+            {p.inUseBy ? "in use" : "saved"}
+          </option>
+        ))}
+      </datalist>
+      <p className="field-hint">
+        Pick or name one to keep this browser (logins, cookies, device) for next time. One session
+        at a time per saved browser.
+      </p>
+    </label>
+  );
+}
+
+/** NordVPN exit for the session, when Steel has NordVPN service credentials. */
+function VpnField() {
+  const [available, setAvailable] = useState(false);
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    listVpnProviders(controller.signal)
+      .then(({ providers }) => setAvailable(providers.some((p) => p.id === "nordvpn" && p.configured)))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  if (!available) return null;
+  return (
+    <div className="field">
+      <label className="switch-row">
+        <span className="switch-text">
+          <span>NordVPN</span>
+          <span className="field-hint">Browse through a NordVPN server (replaces the proxy URL).</span>
+        </span>
+        <input
+          className="switch"
+          name="vpn"
+          value="nordvpn"
+          type="checkbox"
+          role="switch"
+          checked={on}
+          onChange={(e) => setOn(e.currentTarget.checked)}
+        />
+      </label>
+      {on && (
+        <input
+          className="input"
+          name="vpnCountry"
+          placeholder="Country code, e.g. FR (empty: fastest)"
+          pattern="[A-Za-z]{2}"
+          maxLength={2}
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="NordVPN country"
+        />
+      )}
+    </div>
   );
 }

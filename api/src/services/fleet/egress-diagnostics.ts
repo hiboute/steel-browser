@@ -3,9 +3,10 @@ import type { SessionService } from "../session.service.js";
 import type { PlatformStore } from "../platform/store.js";
 import { FleetError } from "./types.js";
 import { browserDnsProbe, type DnsObservation } from "./dns-probe.js";
+import { diagnosticBrowserEpoch, navigationFailure, type NavigationFailure } from "./diagnostic-evidence.js";
 
 export interface EgressProbe { channel: "http" | "websocket" | "worker" | "webrtc" | "dns" | "ipv6"; status: "pass" | "fail" | "untested"; reason: string; observedIp?: string; headers?: Record<string, string>; candidates?: string[]; observations?: DnsObservation[] }
-export interface EgressReport { id: string; sessionId: string; checkedAt: string; collectorOrigin: string | null; probes: EgressProbe[]; limits: string[] }
+export interface EgressReport { id: string; sessionId: string; checkedAt: string; browserEpoch?: string; navigationFailure?: NavigationFailure; collectorOrigin: string | null; probes: EgressProbe[]; limits: string[] }
 const untested = (channel: EgressProbe["channel"], reason: string): EgressProbe => ({ channel, status: "untested", reason });
 
 /** Probe page and worker requests run in the real session browser, never Node's HTTP client. */
@@ -21,7 +22,7 @@ export class BrowserEgressDiagnostics {
   private async probe(sessionId: string): Promise<EgressReport> {
     const session = this.sessions.getSession(sessionId);
     if (!session) throw new FleetError("session_not_found", "Session not found", 404);
-    const report: EgressReport = { id: randomUUID(), sessionId, checkedAt: new Date().toISOString(), collectorOrigin: null, probes: [], limits: ["A successful probe covers only the named channel at the recorded time; it is not a proof of undetectability or all future egress.", "DNS routing requires an authoritative DNS collector; browser HTTP success alone cannot establish the resolver path."] };
+    const report: EgressReport = { id: randomUUID(), sessionId, checkedAt: new Date().toISOString(), browserEpoch: diagnosticBrowserEpoch(session), collectorOrigin: null, probes: [], limits: ["A successful probe covers only the named channel at the recorded time; it is not a proof of undetectability or all future egress.", "DNS routing requires an authoritative DNS collector; browser HTTP success alone cannot establish the resolver path."] };
     if (!this.collector) {
       report.probes = (["http", "websocket", "worker", "webrtc", "dns", "ipv6"] as const).map(channel => untested(channel, "Owned collector is not configured"));
       await this.store.write(`egress-diagnostics/${sessionId}.json`, report); return report;
@@ -30,7 +31,11 @@ export class BrowserEgressDiagnostics {
     report.collectorOrigin = origin.origin;
     const page = await session!.cdpService.createPage();
     try {
-      await page.goto(`${origin.origin}/?nonce=${report.id}`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+      const navigation = await page.goto(`${origin.origin}/?nonce=${report.id}`, { waitUntil: "domcontentloaded", timeout: 15_000 });
+      if (navigation?.status() === 407) {
+        report.navigationFailure = "proxy_authentication_required";
+        throw new Error("Owned collector navigation requires proxy authentication");
+      }
       const result = await page.evaluate(async ({ nonce, ipv6, stun }) => {
         const timeout = <T>(p: Promise<T>, ms = 6000): Promise<T> => new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error("timeout")), ms); p.then(v => { clearTimeout(timer); resolve(v); }, e => { clearTimeout(timer); reject(e); }); });
         const probes: any[] = [];
@@ -65,7 +70,14 @@ export class BrowserEgressDiagnostics {
         if (["websocket", "worker"].includes(probe.channel) && probe.status === "pass" && probe.observedIp !== httpIp) { probe.status = "fail"; probe.reason = "This channel exited through a different public IP from the browser HTTP request"; }
         if (probe.channel === "webrtc" && probe.status === "pass" && probe.candidates?.some(candidate => /\btyp srflx\b/.test(candidate) && candidate.split(" ")[4] !== httpIp)) { probe.status = "fail"; probe.reason = "A server-reflexive WebRTC candidate differs from the observed HTTP exit IP"; }
       }
-    } catch { report.probes = (["http", "websocket", "worker", "webrtc", "dns", "ipv6"] as const).map(channel => ({ channel, status: "untested", reason: "Owned diagnostic page could not be loaded through this session" })); }
+    } catch (error) {
+      report.navigationFailure ??= navigationFailure(error);
+      report.probes = (["http", "websocket", "worker", "webrtc", "dns", "ipv6"] as const).map(channel => ({
+        channel,
+        status: channel === "http" && report.navigationFailure ? "fail" : "untested",
+        reason: channel === "http" && report.navigationFailure ? "Browser navigation to the owned collector failed with a classified transport error" : "Owned diagnostic page could not be loaded through this session",
+      }));
+    }
     finally { await page.close().catch(() => {}); }
     await this.store.write(`egress-diagnostics/${sessionId}.json`, report); return report;
   }

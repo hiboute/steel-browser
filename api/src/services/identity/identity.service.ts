@@ -615,6 +615,7 @@ export class IdentityService {
       !options.identityProfile &&
       !options.fingerprint &&
       !options.mobileProfile &&
+      options.deviceConfig?.device !== "mobile" &&
       !options.browserProfile &&
       !options.userAgent &&
       !options.skipFingerprintInjection &&

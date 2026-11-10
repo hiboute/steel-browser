@@ -361,6 +361,7 @@ describe("default identity and upkeep", () => {
       { browserProfile: "work" },
       { userAgent: "Mozilla/5.0 Chrome/149.0.0.0" },
       { skipFingerprintInjection: true },
+      { deviceConfig: { device: "mobile" as const } },
     ]) {
       const options = { ...base(), ...own };
       await auto.prepare(options);

@@ -62,6 +62,15 @@ export function score(report: IdentityReport, lab: LabReport, mode: Compatibilit
   const errors = report.issues.filter((i) => i.severity === "error").map((i) => i.code);
   const warnings = report.issues.filter((i) => i.severity === "warning").map((i) => i.code);
   const failedChecks = lab.checks.filter((c) => c.status === "fail").map((c) => c.name);
+  // A browser that could not be looked at has no score: it must never win by default.
+  const unseen =
+    report.observed.status !== "measured"
+      ? "The page could not be observed"
+      : lab.checks.some((c) => c.status === "untested")
+      ? "The test pages could not run"
+      : undefined;
+  if (unseen)
+    return { mode, status: "failed", reason: unseen, errors, warnings, failedChecks, signals: [] };
   const signals = signalsOf(report.observed.values);
   const value =
     100 - 20 * errors.length - 5 * warnings.length - 10 * failedChecks.length - 5 * signals.length;

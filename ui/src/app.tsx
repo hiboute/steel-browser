@@ -139,13 +139,13 @@ export function App() {
             <OperationsPage />
           ) : session ? (
             <div className="session-workspace">
-              <SessionWorkbench key={session.id} session={session} />
+              <SessionWorkbench key={`workbench:${session.id}`} session={session} />
               <HandoffBanner session={session} />
               <div className="workspace">
                 <SessionConsole key={session.id} session={session} hidden={!consoleOpen} />
                 <Stage session={session} devtoolsOpen={devtoolsOpen} />
               </div>
-              <SessionHistory key={session.id} session={session} />
+              <SessionHistory key={`history:${session.id}`} session={session} />
             </div>
           ) : error ? (
             <Notice title="Can't reach the Steel API">

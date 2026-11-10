@@ -14,7 +14,9 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((r) => rm(r, { recursive: true, force: true })));
   vi.unstubAllEnvs();
 });
+const added: any[] = [];
 async function setup() {
+  added.length = 0;
   vi.stubEnv("STEEL_AUTH_KEYS", JSON.stringify({ [key]: { id: "agent", role: "agent" } }));
   const app = Fastify();
   apps.push(app);
@@ -25,7 +27,12 @@ async function setup() {
   app.decorate("sessionService", {
     listSessions: () => [],
     activeSession: { id: "idle" },
-    hooks: { add: () => () => {} },
+    hooks: {
+      add: (hooks: any) => {
+        added.push(hooks);
+        return () => {};
+      },
+    },
   } as any);
   app.decorate("fileService", {} as any);
   app.decorate("browserPool", { setSchedulingPolicy: () => {} } as any);
@@ -149,4 +156,18 @@ it("binds legacy primary reads and hides other principals' queue and slot identi
   const pool = (await app.inject({ url: "/v1/pool", headers: auth })).json();
   expect(pool.queue).toEqual([{ sessionId: "s", client: "agent" }]);
   expect(pool.slots).toEqual([{ index: 0, sessionId: null, state: "live", primary: true }]);
+});
+
+it("moves the idle browser's ownership record when the idle browser is replaced", async () => {
+  const app = await setup();
+  expect(app.control.readers("idle")).toEqual(["local"]);
+  (app.sessionService as any).activeSession = { id: "next-idle", status: "idle" };
+  for (const hooks of added) await hooks.onEnded?.({ id: "s" });
+  expect(app.control.readers("next-idle")).toEqual(["local"]);
+  expect(app.control.readers("idle")).toEqual([]);
+  // A live browser in the primary slot is not the idle browser.
+  (app.sessionService as any).activeSession = { id: "busy", status: "live" };
+  for (const hooks of added) await hooks.onParked?.({ id: "s" });
+  expect(app.control.readers("busy")).toEqual([]);
+  expect(app.control.readers("next-idle")).toEqual(["local"]);
 });

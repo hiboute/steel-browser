@@ -242,3 +242,30 @@ it("observer tickets cannot become CDP control credentials", () => {
     control.consumeTicket(control.issueObserverTicket("s", agent).ticket, "s", "cdp"),
   ).toThrow();
 });
+it("sweeps only lapsed leases and forgets a record on request", async () => {
+  vi.useFakeTimers();
+  for (let i = 0; i < 50; i++) await control.registerResource(`old-${i}`, agent.id);
+  const queued = vi.spyOn(control as any, "serial");
+  await control.expire();
+  expect(queued).not.toHaveBeenCalled();
+  const issued = await control.acquire("s", agent, { mode: "agent", ttlMs: 1000 });
+  queued.mockClear();
+  await vi.advanceTimersByTimeAsync(1001);
+  await control.expire();
+  expect(queued).toHaveBeenCalledTimes(1);
+  expect(() => control.assert("s", agent, issued.token)).toThrow();
+  await control.forget("old-0");
+  expect(control.readers("old-0")).toEqual([]);
+  const restarted = new OwnershipService(store);
+  await restarted.initialize();
+  expect(restarted.readers("old-0")).toEqual([]);
+  expect(restarted.readers("old-1")).toEqual([agent.id]);
+  await restarted.close();
+});
+it("drops a browser's admission request when it is released", async () => {
+  const b = new BudgetService(store, true);
+  b.register({ sessionId: "gone", _principal: agent, credentials: {} });
+  b.acquired("gone");
+  b.release("gone");
+  expect((b as any).requests.has("gone")).toBe(false);
+});

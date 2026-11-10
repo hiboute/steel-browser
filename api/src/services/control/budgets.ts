@@ -109,6 +109,8 @@ export class BudgetService {
   release(id: string) {
     this.active.delete(id);
     for (const ids of this.sites.values()) ids.delete(id);
+    // Admission registers the request again on every start and resume.
+    this.requests.delete(id);
   }
   claimSite(id: string, url: string) {
     let origin: string;

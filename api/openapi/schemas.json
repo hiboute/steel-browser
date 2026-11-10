@@ -17912,6 +17912,59 @@
         }
       }
     },
+    "/v1/sessions/{id}/devtools": {
+      "get": {
+        "operationId": "open_scoped_devtools",
+        "tags": [
+          "CDP"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "in": "query",
+            "name": "controlTicket",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "in": "query",
+            "name": "pageId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "in": "query",
+            "name": "websocketPath",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/v1/sessions/{id}/handoff": {
       "post": {
         "operationId": "request_human_handoff",
@@ -21168,6 +21221,50 @@
     "/v1/sessions/{id}/artifacts/process": {
       "post": {
         "operationId": "process_session_artifact",
+        "tags": [
+          "Data"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/extractions/{id}": {
+      "get": {
+        "operationId": "get_retained_extraction",
+        "tags": [
+          "Data"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_retained_extraction",
         "tags": [
           "Data"
         ],

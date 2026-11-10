@@ -5894,6 +5894,26 @@ export type ConfigureBrowserBudgetsResponses = {
   200: unknown;
 };
 
+export type OpenScopedDevtoolsData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query: {
+    controlTicket: string;
+    pageId?: string;
+    websocketPath?: string;
+  };
+  url: "/v1/sessions/{id}/devtools";
+};
+
+export type OpenScopedDevtoolsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
 export type GetHumanHandoffData = {
   body?: never;
   path: {
@@ -7757,6 +7777,38 @@ export type ProcessSessionArtifactData = {
 };
 
 export type ProcessSessionArtifactResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type DeleteRetainedExtractionData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/extractions/{id}";
+};
+
+export type DeleteRetainedExtractionResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetRetainedExtractionData = {
+  body?: never;
+  path: {
+    id: string;
+  };
+  query?: never;
+  url: "/v1/extractions/{id}";
+};
+
+export type GetRetainedExtractionResponses = {
   /**
    * Default Response
    */

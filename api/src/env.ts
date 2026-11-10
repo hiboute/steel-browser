@@ -87,6 +87,13 @@ const envSchema = z.object({
     .transform((val) => val === "true" || val === "1")
     .prefault("false"),
   MAX_SESSIONS: z.coerce.number().int().min(1).prefault(1),
+  SESSION_QUEUE_MAX_MS: z.coerce.number().int().min(1).max(2_147_483_647).prefault(600_000),
+  SESSION_QUEUE_TIMEOUT_MS: z.coerce.number().int().min(0).max(2_147_483_647).prefault(0),
+  RRWEB_RECORDING: z
+    .string()
+    .optional()
+    .transform((value) => value === "true" || value === "1")
+    .prefault("false"),
   CDP_PORT_BASE: z.coerce.number().prefault(9222),
   /** Ports the pool never gives a browser: 9223 is the bundled nginx CDP proxy. */
   CDP_RESERVED_PORTS: z

@@ -6,6 +6,7 @@ import {
   PDFRequestBody,
 } from "../actions/actions.schema.js";
 import { SessionContextSchema } from "../../services/context/types.js";
+import { env } from "../../env.js";
 
 const deviceConfigSchema = z
   .object({
@@ -26,6 +27,15 @@ export const SessionCredentials = z
   .describe("Configuration for session credentials");
 
 const CreateSession = z.object({
+  queueTimeout: z
+    .number()
+    .int()
+    .min(0)
+    .max(env.SESSION_QUEUE_MAX_MS ?? 600_000)
+    .optional()
+    .describe(
+      "Maximum time in milliseconds to wait FIFO for a browser slot. Zero fails immediately when full.",
+    ),
   sessionId: z.string().uuid().optional().describe("Unique identifier for the session"),
   proxyUrl: z.string().optional().describe("Proxy URL to use for the session"),
   userAgent: z.string().optional().describe("User agent string to use for the session"),
@@ -155,6 +165,54 @@ const ReleaseSession = SessionDetails.merge(
   z.object({ success: z.boolean().describe("Indicates if the session was successfully released") }),
 );
 
+const ReleaseSessionsRequest = z
+  .object({
+    sessionId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe("Release only this session; omit to release all live sessions"),
+  })
+  .nullable();
+
+const PoolStatus = z.object({
+  maxSessions: z.number().int(),
+  live: z.number().int(),
+  free: z.number().int(),
+  queued: z.number().int(),
+  queue: z.array(
+    z.object({ position: z.number().int(), sessionId: z.string(), waitingMs: z.number() }),
+  ),
+  slots: z.array(
+    z.object({
+      index: z.number().int(),
+      cdpPort: z.number().int(),
+      primary: z.boolean(),
+      state: z.enum(["free", "starting", "live", "stopping"]),
+      sessionId: z.string().nullable(),
+    }),
+  ),
+});
+
+const PoolFullResponse = z.object({
+  success: z.literal(false),
+  code: z.literal("pool_full"),
+  message: z.string(),
+  pool: z.object({ max: z.number().int(), live: z.number().int(), queued: z.number().int() }),
+});
+
+const PoolClosedResponse = z.object({
+  success: z.literal(false),
+  code: z.literal("shutting_down"),
+  message: z.string(),
+});
+
+const SessionNotFoundResponse = z.object({
+  success: z.literal(false),
+  code: z.literal("session_not_found"),
+  message: z.string(),
+});
+
 const RecordedEvents = z.object({
   events: z.array(z.any()).describe("Events to emit"),
 });
@@ -230,6 +288,11 @@ export const browserSchemas = {
   SessionContextSchema,
   RecordedEvents,
   ReleaseSession,
+  ReleaseSessionsRequest,
+  PoolStatus,
+  PoolFullResponse,
+  PoolClosedResponse,
+  SessionNotFoundResponse,
   SessionStreamQuery,
   SessionStreamResponse,
   SessionLiveDetailsResponse,

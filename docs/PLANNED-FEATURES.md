@@ -1,14 +1,27 @@
-# Planned features: status and remaining work (paused 2026-11-10)
+# Planned features: status and remaining work
 
-Nothing below is implemented yet. This file is the plan: the feature list the owner picked, what is done so far,
-and the API and architecture draft to build from. The draft was written against fork main `ef515aa`; its review
-was interrupted, so treat it as a proposal to check against the code, not as settled.
+This file tracks the feature list the owner picked and the remaining architecture draft. The initial draft
+was written against fork main `ef515aa`. PR #7 now includes the first session foundation, based on main
+`0469ef1`; the unchecked work below remains a proposal to check against the code.
+
+Implemented in PR #7:
+
+- Explicit slot states, ownership through teardown, shared concurrent release, launch cancellation and shutdown cleanup.
+- FIFO session creation with `queueTimeout`, timeout and disconnect handling, 429 pool details and `Retry-After`.
+- Basic `GET /v1/pool` slot and queue status. Memory stats, parked sessions and background workers remain planned.
+- Targeted bulk-route release bodies, scoped reads returning 404, accurate browser health, masked proxy credentials,
+  and bundled rrweb recording disabled unless `RRWEB_RECORDING=true`.
+- OpenAPI and generated UI types, regression tests and real Chromium queue handoff checks.
+
+See [MULTI_SESSION.md](../MULTI_SESSION.md) for the implemented API contract. The broader API below describes
+the eventual target and includes fields and routes that do not exist yet.
 
 ## Remaining work
 
-- [ ] Review the draft below against the code (four reviews were started and stopped)
-- [ ] PR A, sessions and platform: idle timeout and reaper, wait for a slot, park and resume, park on shutdown,
-      pool status, memory guard, per-session files, events, notifier, audit log, metrics, egress
+- [ ] Review the rest of the draft below against the code
+- [x] PR A foundation: slot lifecycle, FIFO wait, basic pool status and fixes in section 1.7
+- [ ] PR A remaining: idle timeout and reaper, park and resume, park on shutdown,
+      expanded pool status, memory guard, per-session files, events, notifier, audit log, metrics, egress
 - [ ] PR B, logins: cookie set health checks, write-back, fingerprint pin, access rules, audit entries
 - [ ] PR C, agents: human handoff, action timeline, recording and replay data
 - [ ] PR D, extras: warm sessions, extract endpoint, page watchers, extension library, upstream sync workflow

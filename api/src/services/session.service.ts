@@ -14,7 +14,7 @@ import {
 } from "../types/index.js";
 import { IProxyServer, ProxyServer } from "../utils/proxy.js";
 import { getBaseUrl, getSessionUrl, getUrl } from "../utils/url.js";
-import { BrowserPool, PoolSlot } from "./browser-pool.service.js";
+import { BrowserPool, PoolSlot, PoolClosedError } from "./browser-pool.service.js";
 import { CDPService } from "./cdp/cdp.service.js";
 import { ShutdownReason } from "./cdp/plugins/core/base-plugin.js";
 import { CookieData } from "./context/types.js";
@@ -85,10 +85,59 @@ const defaultSession = {
   solveCaptcha: false,
 };
 
+export interface StartSessionOptions {
+  sessionId?: string;
+  proxyUrl?: string;
+  /** Shown as the session's proxy instead of proxyUrl (which may carry credentials). */
+  proxyLabel?: string;
+  userAgent?: string;
+  sessionContext?: {
+    cookies?: CookieData[];
+    localStorage?: Record<string, Record<string, any>>;
+  };
+  isSelenium?: boolean;
+  fingerprint?: BrowserFingerprintWithHeaders;
+  logSinkUrl?: string;
+  userDataDir?: string;
+  persist?: boolean;
+  /** Saved browser: a named persistent Chrome profile under BROWSER_PROFILES_DIR. */
+  browserProfile?: string;
+  blockAds?: boolean;
+  optimizeBandwidth?: boolean | OptimizeBandwidthOptions;
+  extensions?: string[];
+  timezone?: string;
+  dimensions?: { width: number; height: number };
+  extra?: BrowserLaunchExtra;
+  credentials: CredentialsOptions;
+  skipFingerprintInjection?: boolean;
+  userPreferences?: Record<string, any>;
+  deviceConfig?: { device: "desktop" | "mobile" };
+  fullscreen?: boolean;
+  headless?: boolean;
+  dangerouslyLogRequestDetails?: boolean;
+  captureWorkerNetwork?: boolean;
+  caCertificates?: string[];
+
+  queueTimeout?: number;
+  signal?: AbortSignal;
+}
+
 export type ProxyFactory = (
   proxyUrl: string,
   options?: OptimizeBandwidthOptions,
 ) => Promise<IProxyServer> | IProxyServer;
+
+export function redactProxyUrl(value?: string): string {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    if (url.username) url.username = "redacted";
+    if (url.password) url.password = "redacted";
+    return url.toString();
+  } catch {
+    return "configured";
+  }
+}
 
 export class SessionService {
   private logger: FastifyBaseLogger;
@@ -107,6 +156,10 @@ export class SessionService {
   private ephemeralProfiles = new Map<string, string>();
   /** Saved browser name -> the session holding it (one Chrome per profile). */
   private profileLocks = new Map<string, string>();
+  private starts = new Map<string, Promise<SessionDetails>>();
+  private endings = new Map<string, Promise<SessionDetails>>();
+  private closing = false;
+  private closePromise?: Promise<void>;
 
   /** The session holding a saved browser, if any. */
   public profileHolder(name: string): string | undefined {
@@ -137,7 +190,8 @@ export class SessionService {
   /** Takes a saved browser for a session; throws BrowserProfileInUseError if another holds it. */
   public lockProfile(name: string, sessionId: string): void {
     const holder = this.profileLocks.get(name);
-    if (holder !== undefined && holder !== sessionId) throw new BrowserProfileInUseError(name, holder);
+    if (holder !== undefined && holder !== sessionId)
+      throw new BrowserProfileInUseError(name, holder);
     this.profileLocks.set(name, sessionId);
   }
 
@@ -164,15 +218,22 @@ export class SessionService {
     // the client), release the session too instead of leaving it "live".
     for (const slot of this.browserPool.allSlots) {
       slot.cdpService.setDisconnectHandler(async () => {
-        if (slot.sessionId) {
+        if (slot.sessionId && slot.state === "live") {
           this.logger.warn(
             `[SessionService] Browser of session ${slot.sessionId} disconnected, releasing it`,
           );
           await this.endSession(slot.sessionId).catch((err) =>
             this.logger.error({ err }, "[SessionService] Failed to release disconnected session"),
           );
-        } else if (slot.cdpService.primary) {
-          await slot.cdpService.endSession();
+        } else if (slot.cdpService.primary && slot.state === "free" && !this.closing) {
+          slot.state = "starting";
+          try {
+            await slot.cdpService.endSession();
+            this.browserPool.idleReady(slot.index);
+          } catch (error) {
+            slot.state = "stopping";
+            throw error;
+          }
         }
       });
     }
@@ -209,6 +270,10 @@ export class SessionService {
 
   public getSession(sessionId: string): Session | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  public isEnding(sessionId: string): boolean {
+    return this.endings.has(sessionId);
   }
 
   /** A live session, or the idle one (the primary browser between sessions). */
@@ -259,39 +324,55 @@ export class SessionService {
     return { dir: `${base}-session-${sessionId}`, ephemeral: true };
   }
 
-  public async startSession(options: {
-    sessionId?: string;
-    proxyUrl?: string;
-    /** Shown as the session's proxy instead of proxyUrl (which may carry credentials). */
-    proxyLabel?: string;
-    userAgent?: string;
-    sessionContext?: {
-      cookies?: CookieData[];
-      localStorage?: Record<string, Record<string, any>>;
+  public async startSession(options: StartSessionOptions): Promise<SessionDetails> {
+    const sessionId = options.sessionId ?? uuidv4();
+    if (this.sessions.has(sessionId) || this.starts.has(sessionId) || this.endings.has(sessionId)) {
+      throw new Error(`Session ${sessionId} is already live or changing state`);
+    }
+    const task = this.startReservedSession({ ...options, sessionId });
+    this.starts.set(sessionId, task);
+    try {
+      return await task;
+    } finally {
+      this.starts.delete(sessionId);
+    }
+  }
+
+  public getPoolStatus() {
+    return {
+      maxSessions: this.browserPool.maxSessions,
+      live: this.sessions.size,
+      free: this.browserPool.allSlots.filter((slot) => slot.state === "free").length,
+      queued: this.browserPool.queuedCount,
+      queue: this.browserPool.queue,
+      slots: this.browserPool.allSlots.map(({ index, cdpPort, state, sessionId }) => ({
+        index,
+        cdpPort,
+        primary: index === 0,
+        state,
+        sessionId,
+      })),
     };
-    isSelenium?: boolean;
-    fingerprint?: BrowserFingerprintWithHeaders;
-    logSinkUrl?: string;
-    userDataDir?: string;
-    persist?: boolean;
-    /** Saved browser: a named persistent Chrome profile under BROWSER_PROFILES_DIR. */
-    browserProfile?: string;
-    blockAds?: boolean;
-    optimizeBandwidth?: boolean | OptimizeBandwidthOptions;
-    extensions?: string[];
-    timezone?: string;
-    dimensions?: { width: number; height: number };
-    extra?: BrowserLaunchExtra;
-    credentials: CredentialsOptions;
-    skipFingerprintInjection?: boolean;
-    userPreferences?: Record<string, any>;
-    deviceConfig?: { device: "desktop" | "mobile" };
-    fullscreen?: boolean;
-    headless?: boolean;
-    dangerouslyLogRequestDetails?: boolean;
-    captureWorkerNetwork?: boolean;
-    caCertificates?: string[];
-  }): Promise<SessionDetails> {
+  }
+
+  /** Reject queued work before waiting for in-flight launches and releasing live sessions. */
+  public close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.closing = true;
+    this.browserPool.close();
+    this.closePromise = (async () => {
+      await Promise.allSettled([...this.starts.values()]);
+      await Promise.allSettled([
+        ...this.endings.values(),
+        ...this.listSessions().map((s) => this.endSession(s.id)),
+      ]);
+    })();
+    return this.closePromise;
+  }
+
+  private async startReservedSession(
+    options: StartSessionOptions & { sessionId: string },
+  ): Promise<SessionDetails> {
     const {
       proxyUrl,
       userAgent,
@@ -329,14 +410,26 @@ export class SessionService {
     let fingerprint = options.fingerprint;
 
     // Selenium drives the primary browser's display, so it can only use slot 0.
-    const slot = this.browserPool.acquire(sessionId, { primaryOnly: !!isSelenium });
-    if (!slot) {
+    let slot: PoolSlot | null;
+    try {
+      slot = await this.browserPool.acquireWhenAvailable(sessionId, {
+        primaryOnly: !!isSelenium,
+        timeoutMs: Math.min(
+          Math.max(0, options.queueTimeout ?? env.SESSION_QUEUE_TIMEOUT_MS ?? 0),
+          env.SESSION_QUEUE_MAX_MS ?? 600_000,
+        ),
+        signal: options.signal,
+      });
+      if (!slot) throw new SessionPoolFullError(this.browserPool.maxSessions);
+    } catch (error) {
       this.unlockProfile(sessionId);
-      throw new SessionPoolFullError(this.browserPool.maxSessions);
+      throw error;
     }
     const cdpService = slot.cdpService;
+    let session: Session | undefined;
 
     try {
+      options.signal?.throwIfAborted();
       // start fetching timezone as early as possible
       let timezonePromise: Promise<string>;
       if (options.timezone) {
@@ -362,13 +455,13 @@ export class SessionService {
           : resolvedDimensions;
 
       const { promise, resolve } = Promise.withResolvers<void>();
-      const session: Session = {
+      session = {
         id: sessionId,
         createdAt: new Date().toISOString(),
         ...defaultSession,
         ...sessionStats,
         status: "live",
-        proxy: options.proxyLabel ?? proxyUrl ?? "",
+        proxy: options.proxyLabel ?? redactProxyUrl(proxyUrl),
         solveCaptcha: false,
         dimensions: finalDimensions,
         isSelenium: !!isSelenium,
@@ -381,8 +474,6 @@ export class SessionService {
         slot: slot.index,
         ...(browserProfile !== undefined ? { browserProfile } : {}),
       };
-      this.sessions.set(sessionId, session);
-
       const profile = this.userDataDirFor(
         slot,
         sessionId,
@@ -494,7 +585,10 @@ export class SessionService {
               JSON.stringify(generated),
               { mode: 0o600 },
             ).catch((err) =>
-              this.logger.warn({ err }, `[SessionService] Could not save the fingerprint of ${browserProfile}`),
+              this.logger.warn(
+                { err },
+                `[SessionService] Could not save the fingerprint of ${browserProfile}`,
+              ),
             );
           }
         }
@@ -514,16 +608,39 @@ export class SessionService {
         });
       }
 
+      options.signal?.throwIfAborted();
+      if (this.closing) throw new PoolClosedError();
+      if (!cdpService.isRunning() && !isSelenium)
+        throw new Error("Browser disconnected during launch");
+      this.sessions.set(sessionId, session);
+      this.browserPool.markLive(sessionId);
       return session;
     } catch (error) {
-      void this.removeProfile(sessionId);
-      this.unlockProfile(sessionId);
-      const session = this.sessions.get(sessionId);
-      this.sessions.delete(sessionId);
-      this.browserPool.release(sessionId);
-      await session?.proxyServer?.close(true).catch(() => undefined);
-      if (!slot.cdpService.primary) {
-        await slot.cdpService.shutdown(ShutdownReason.LAUNCH_FAILURE).catch(() => undefined);
+      this.browserPool.markStopping(sessionId);
+      let reusable = false;
+      try {
+        if (isSelenium) await this.seleniumService.close();
+        await slot.cdpService.shutdown(ShutdownReason.LAUNCH_FAILURE);
+        if (slot.cdpService.primary && !this.closing) await slot.cdpService.launch();
+        reusable = true;
+      } catch (cleanupError) {
+        this.logger.error(
+          { err: cleanupError, sessionId },
+          "Browser cleanup failed; keeping slot unavailable",
+        );
+      }
+      try {
+        await session?.proxyServer?.close(true);
+      } catch (cleanupError) {
+        this.logger.error({ err: cleanupError }, "Failed to close session proxy");
+      } finally {
+        session?.complete();
+        // Never delete a profile or lend a slot while Chrome may still own it.
+        if (reusable) {
+          await this.removeProfile(sessionId);
+          this.unlockProfile(sessionId);
+          this.browserPool.release(sessionId);
+        }
       }
       throw error;
     }
@@ -531,31 +648,62 @@ export class SessionService {
 
   /** Releases one session (default: the most recent live one). */
   public async endSession(sessionId?: string): Promise<SessionDetails> {
-    const session = sessionId ? this.sessions.get(sessionId) : this.activeSession;
+    const id = sessionId ?? this.activeSession.id;
+    const existing = this.endings.get(id);
+    if (existing) return existing;
+    const session = this.sessions.get(id);
     if (!session || session.status !== "live" || !this.sessions.has(session.id)) {
       throw new Error(sessionId ? `Session ${sessionId} not found` : "No live session");
     }
 
-    // Take it out of the live set first, so the browser's disconnect handler
-    // does not try to release it a second time while it is being torn down.
-    this.sessions.delete(session.id);
-    this.browserPool.release(session.id);
+    const task = this.finishSession(session);
+    this.endings.set(id, task);
+    try {
+      return await task;
+    } finally {
+      this.endings.delete(id);
+    }
+  }
 
+  private async finishSession(session: Session): Promise<SessionDetails> {
+    this.sessions.delete(session.id);
+    this.browserPool.markStopping(session.id);
     session.complete();
     session.status = "released";
     session.duration = new Date().getTime() - new Date(session.createdAt).getTime();
 
+    let reusable = false;
     try {
       if (session.isSelenium) {
-        this.seleniumService.close();
+        await this.seleniumService.close();
         await this.primaryCdp.launch();
       } else {
         await this.saveProfileCookies(session.id, session.cdpService);
         await session.cdpService.endSession();
       }
+      reusable = true;
+    } catch (error) {
+      // An end hook or idle relaunch may fail after Chrome exits. Make a second,
+      // explicit cleanup attempt; never hand a still-owned slot to another caller.
+      try {
+        if (session.isSelenium) await this.seleniumService.close();
+        await session.cdpService.shutdown(ShutdownReason.SESSION_END);
+        if (session.cdpService.primary && !this.closing) await session.cdpService.launch();
+        reusable = true;
+      } catch (cleanupError) {
+        this.logger.error(
+          { err: cleanupError, sessionId: session.id },
+          "Browser cleanup failed; keeping slot unavailable",
+        );
+      }
+      throw error;
     } finally {
       const proxyServer = session.proxyServer;
-      await proxyServer?.close(true);
+      try {
+        await proxyServer?.close(true);
+      } catch (error) {
+        this.logger.error({ err: error }, "Failed to close session proxy");
+      }
       session.proxyServer = undefined;
       // A connection is credited on `connectionClosed`, and long-lived tunnels stay
       // open until the browser goes away, so take the counters once the proxy has
@@ -565,8 +713,11 @@ export class SessionService {
         session.proxyRxBytes = proxyServer.rxBytes;
       }
 
-      await this.removeProfile(session.id);
-      this.unlockProfile(session.id);
+      if (reusable) {
+        await this.removeProfile(session.id);
+        this.unlockProfile(session.id);
+        this.browserPool.release(session.id);
+      }
       if (this.sessions.size === 0) {
         this.idleSession = this.makeIdleSession();
       }

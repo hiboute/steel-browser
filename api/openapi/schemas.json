@@ -33,10 +33,13 @@
           "pdf": {
             "type": "boolean"
           },
+          "removeBase64Images": {
+            "type": "boolean"
+          },
           "proxyUrl": {
-            "type": "string",
+            "description": "Proxy URL to use for the scrape. Provide `null` to disable proxy. If not provided, current session proxy settings will be used.",
             "nullable": true,
-            "description": "Proxy URL to use for the scrape. Provide `null` to disable proxy. If not provided, current session proxy settings will be used."
+            "type": "string"
           },
           "delay": {
             "type": "number"
@@ -111,6 +114,9 @@
                 "type": "string"
               },
               "jsonLd": {},
+              "wordCount": {
+                "type": "number"
+              },
               "statusCode": {
                 "type": "integer"
               }
@@ -161,9 +167,9 @@
             "type": "string"
           },
           "proxyUrl": {
-            "type": "string",
+            "description": "Proxy URL to use for the scrape. Provide `null` to disable proxy. If not provided, current session proxy settings will be used.",
             "nullable": true,
-            "description": "Proxy URL to use for the scrape. Provide `null` to disable proxy. If not provided, current session proxy settings will be used."
+            "type": "string"
           },
           "delay": {
             "type": "number"
@@ -188,9 +194,9 @@
             "type": "string"
           },
           "proxyUrl": {
-            "type": "string",
+            "description": "Proxy URL to use for the scrape. Provide `null` to disable proxy. If not provided, current session proxy settings will be used.",
             "nullable": true,
-            "description": "Proxy URL to use for the scrape. Provide `null` to disable proxy. If not provided, current session proxy settings will be used."
+            "type": "string"
           },
           "delay": {
             "type": "number"
@@ -204,27 +210,89 @@
       "PDFResponse": {
         "title": "PDFResponse"
       },
+      "SearchRequest": {
+        "title": "SearchRequest",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "proxyUrl": {
+            "description": "Proxy URL to use for the scrape. Provide `null` to disable proxy. If not provided, current session proxy settings will be used.",
+            "nullable": true,
+            "type": "string"
+          },
+          "logUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "SearchResponse": {
+        "title": "SearchResponse",
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "description": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "additionalProperties": false
+      },
       "CreateSession": {
         "title": "CreateSession",
         "type": "object",
         "properties": {
+          "queueTimeout": {
+            "description": "Maximum time in milliseconds to wait FIFO for a browser slot. Zero fails immediately when full.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 600000
+          },
           "sessionId": {
+            "description": "Unique identifier for the session",
             "type": "string",
-            "format": "uuid",
-            "description": "Unique identifier for the session"
+            "format": "uuid"
           },
           "proxyUrl": {
-            "type": "string",
-            "description": "Proxy URL to use for the session"
+            "description": "Proxy URL to use for the session",
+            "type": "string"
           },
           "userAgent": {
-            "type": "string",
-            "description": "User agent string to use for the session"
+            "description": "User agent string to use for the session",
+            "type": "string"
           },
           "sessionContext": {
+            "description": "Session context data to be used in the created session",
             "type": "object",
             "properties": {
               "cookies": {
+                "description": "Cookies to initialize in the session",
                 "type": "array",
                 "items": {
                   "type": "object",
@@ -238,43 +306,44 @@
                       "description": "The value of the cookie"
                     },
                     "url": {
-                      "type": "string",
-                      "description": "The URL of the cookie"
+                      "description": "The URL of the cookie",
+                      "type": "string"
                     },
                     "domain": {
-                      "type": "string",
-                      "description": "The domain of the cookie"
+                      "description": "The domain of the cookie",
+                      "type": "string"
                     },
                     "path": {
-                      "type": "string",
-                      "description": "The path of the cookie"
+                      "description": "The path of the cookie",
+                      "type": "string"
                     },
                     "secure": {
-                      "type": "boolean",
-                      "description": "Whether the cookie is secure"
+                      "description": "Whether the cookie is secure",
+                      "type": "boolean"
                     },
                     "httpOnly": {
-                      "type": "boolean",
-                      "description": "Whether the cookie is HTTP only"
+                      "description": "Whether the cookie is HTTP only",
+                      "type": "boolean"
                     },
                     "sameSite": {
+                      "description": "The same site attribute of the cookie",
                       "type": "string",
                       "enum": [
                         "Strict",
                         "Lax",
                         "None"
-                      ],
-                      "description": "The same site attribute of the cookie"
+                      ]
                     },
                     "size": {
-                      "type": "number",
-                      "description": "The size of the cookie"
+                      "description": "The size of the cookie",
+                      "type": "number"
                     },
                     "expires": {
-                      "type": "number",
-                      "description": "The expiration date of the cookie"
+                      "description": "The expiration date of the cookie",
+                      "type": "number"
                     },
                     "partitionKey": {
+                      "description": "The partition key of the cookie",
                       "type": "object",
                       "properties": {
                         "topLevelSite": {
@@ -290,38 +359,37 @@
                         "topLevelSite",
                         "hasCrossSiteAncestor"
                       ],
-                      "additionalProperties": false,
-                      "description": "The partition key of the cookie"
+                      "additionalProperties": false
                     },
                     "session": {
-                      "type": "boolean",
-                      "description": "Whether the cookie is a session cookie"
+                      "description": "Whether the cookie is a session cookie",
+                      "type": "boolean"
                     },
                     "priority": {
+                      "description": "The priority of the cookie",
                       "type": "string",
                       "enum": [
                         "Low",
                         "Medium",
                         "High"
-                      ],
-                      "description": "The priority of the cookie"
+                      ]
                     },
                     "sameParty": {
-                      "type": "boolean",
-                      "description": "Whether the cookie is a same party cookie"
+                      "description": "Whether the cookie is a same party cookie",
+                      "type": "boolean"
                     },
                     "sourceScheme": {
+                      "description": "The source scheme of the cookie",
                       "type": "string",
                       "enum": [
                         "Unset",
                         "NonSecure",
                         "Secure"
-                      ],
-                      "description": "The source scheme of the cookie"
+                      ]
                     },
                     "sourcePort": {
-                      "type": "number",
-                      "description": "The source port of the cookie"
+                      "description": "The source port of the cookie",
+                      "type": "number"
                     }
                   },
                   "required": [
@@ -329,30 +397,30 @@
                     "value"
                   ],
                   "additionalProperties": false
-                },
-                "description": "Cookies to initialize in the session"
+                }
               },
               "localStorage": {
+                "description": "Domain-specific localStorage items to initialize in the session",
                 "type": "object",
                 "additionalProperties": {
                   "type": "object",
                   "additionalProperties": {
                     "type": "string"
                   }
-                },
-                "description": "Domain-specific localStorage items to initialize in the session"
+                }
               },
               "sessionStorage": {
+                "description": "Domain-specific sessionStorage items to initialize in the session",
                 "type": "object",
                 "additionalProperties": {
                   "type": "object",
                   "additionalProperties": {
                     "type": "string"
                   }
-                },
-                "description": "Domain-specific sessionStorage items to initialize in the session"
+                }
               },
               "indexedDB": {
+                "description": "Domain-specific indexedDB items to initialize in the session",
                 "type": "object",
                 "additionalProperties": {
                   "type": "array",
@@ -437,22 +505,28 @@
                     ],
                     "additionalProperties": false
                   }
-                },
-                "description": "Domain-specific indexedDB items to initialize in the session"
+                }
               }
             },
-            "additionalProperties": false,
-            "description": "Session context data to be used in the created session"
+            "additionalProperties": false
+          },
+          "cookieSets": {
+            "description": "Names of cookie library sets to load into the session (cookies and localStorage), merged in order before sessionContext",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "isSelenium": {
-            "type": "boolean",
-            "description": "Indicates if Selenium is used in the session"
+            "description": "Indicates if Selenium is used in the session",
+            "type": "boolean"
           },
           "blockAds": {
-            "type": "boolean",
-            "description": "Flag to indicate if ads should be blocked in the session"
+            "description": "Flag to indicate if ads should be blocked in the session",
+            "type": "boolean"
           },
           "optimizeBandwidth": {
+            "description": "Enable bandwidth optimizations. Passing true enables all flags (except hosts/patterns). Object allows granular control.",
             "anyOf": [
               {
                 "type": "boolean"
@@ -484,52 +558,82 @@
                 },
                 "additionalProperties": false
               }
-            ],
-            "description": "Enable bandwidth optimizations. Passing true enables all flags (except hosts/patterns). Object allows granular control."
+            ]
           },
           "skipFingerprintInjection": {
-            "type": "boolean",
-            "description": "Flag to indicate if fingerprint injection should be skipped for this session."
+            "description": "Flag to indicate if fingerprint injection should be skipped for this session.",
+            "type": "boolean"
           },
           "deviceConfig": {
+            "description": "Device configuration for the session",
             "type": "object",
             "properties": {
               "device": {
+                "default": "desktop",
                 "type": "string",
                 "enum": [
                   "desktop",
                   "mobile"
-                ],
-                "default": "desktop"
+                ]
               }
             },
-            "additionalProperties": false,
-            "description": "Device configuration for the session. Specify 'mobile' for mobile device fingerprints and configurations."
+            "additionalProperties": false
+          },
+          "fullscreen": {
+            "description": "Launch the browser in fullscreen mode, covering the full screen with no Chrome UI.",
+            "type": "boolean"
           },
           "logSinkUrl": {
-            "type": "string",
-            "description": "Deprecated: Log sink URL to use for the session"
+            "description": "Deprecated: Log sink URL to use for the session",
+            "type": "string"
           },
           "extensions": {
+            "description": "Extensions to use for the session",
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "Extensions to use for the session"
+            }
           },
           "persist": {
-            "type": "boolean",
-            "description": "Flag to indicate if session should be persisted"
+            "description": "Flag to indicate if session should be persisted",
+            "type": "boolean"
+          },
+          "vpn": {
+            "description": "Route the session through a VPN (instead of proxyUrl).",
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "nordvpn"
+                ]
+              },
+              "country": {
+                "description": "Two-letter country code of the exit (default: NordVPN's recommended server)",
+                "type": "string",
+                "pattern": "^[A-Za-z]{2}$"
+              }
+            },
+            "required": [
+              "provider"
+            ],
+            "additionalProperties": false
+          },
+          "browserProfile": {
+            "description": "Saved browser: run the session in this named, persistent Chrome profile (created on first use). It keeps cookies, storage and its fingerprint across sessions, so sites see the same device. One live session per profile.",
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9._-]{1,64}$"
           },
           "userDataDir": {
-            "type": "string",
-            "description": "User data directory path to use for the session"
+            "description": "User data directory path to use for the session",
+            "type": "string"
           },
           "timezone": {
-            "type": "string",
-            "description": "Timezone to use for the session"
+            "description": "Timezone to use for the session",
+            "type": "string"
           },
           "dimensions": {
+            "description": "Dimensions to use for the session",
             "type": "object",
             "properties": {
               "width": {
@@ -543,20 +647,20 @@
               "width",
               "height"
             ],
-            "additionalProperties": false,
-            "description": "Dimensions to use for the session"
+            "additionalProperties": false
           },
           "userPreferences": {
+            "description": "Chrome user preferences to customize browser behavior (e.g., font size, popup blocking, notification settings)",
             "type": "object",
-            "additionalProperties": {},
-            "description": "Chrome user preferences to customize browser behavior (e.g., font size, popup blocking, notification settings)"
+            "additionalProperties": {}
           },
           "extra": {
+            "description": "Extra metadata to help initialize the session",
             "type": "object",
-            "additionalProperties": {},
-            "description": "Extra metadata to help initialize the session"
+            "additionalProperties": {}
           },
           "credentials": {
+            "description": "Configuration for session credentials",
             "type": "object",
             "properties": {
               "autoSubmit": {
@@ -590,12 +694,11 @@
                 ]
               }
             },
-            "additionalProperties": false,
-            "description": "Configuration for session credentials"
+            "additionalProperties": false
           },
           "headless": {
-            "type": "boolean",
-            "description": "Headless mode for the session"
+            "description": "Headless mode for the session",
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -633,6 +736,7 @@
             "description": "Number of events processed in the session"
           },
           "dimensions": {
+            "description": "Dimensions used for the session",
             "type": "object",
             "properties": {
               "width": {
@@ -646,8 +750,7 @@
               "width",
               "height"
             ],
-            "additionalProperties": false,
-            "description": "Dimensions used for the session"
+            "additionalProperties": false
           },
           "timeout": {
             "type": "integer",
@@ -674,12 +777,12 @@
             "description": "URL to view session details"
           },
           "userAgent": {
-            "type": "string",
-            "description": "User agent string used in the session"
+            "description": "User agent string used in the session",
+            "type": "string"
           },
           "proxy": {
-            "type": "string",
-            "description": "Proxy server used for the session"
+            "description": "Proxy server used for the session",
+            "type": "string"
           },
           "proxyTxBytes": {
             "type": "integer",
@@ -692,12 +795,31 @@
             "description": "Amount of data received through the proxy"
           },
           "solveCaptcha": {
-            "type": "boolean",
-            "description": "Indicates if captcha solving is enabled"
+            "description": "Indicates if captcha solving is enabled",
+            "type": "boolean"
           },
           "isSelenium": {
-            "type": "boolean",
-            "description": "Indicates if Selenium is used in the session"
+            "description": "Indicates if Selenium is used in the session",
+            "type": "boolean"
+          },
+          "deviceConfig": {
+            "description": "Device configuration for the session",
+            "type": "object",
+            "properties": {
+              "device": {
+                "default": "desktop",
+                "type": "string",
+                "enum": [
+                  "desktop",
+                  "mobile"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "browserProfile": {
+            "description": "Saved browser profile the session runs in",
+            "type": "string"
           }
         },
         "required": [
@@ -755,6 +877,7 @@
                   "description": "Number of events processed in the session"
                 },
                 "dimensions": {
+                  "description": "Dimensions used for the session",
                   "type": "object",
                   "properties": {
                     "width": {
@@ -768,8 +891,7 @@
                     "width",
                     "height"
                   ],
-                  "additionalProperties": false,
-                  "description": "Dimensions used for the session"
+                  "additionalProperties": false
                 },
                 "timeout": {
                   "type": "integer",
@@ -796,12 +918,12 @@
                   "description": "URL to view session details"
                 },
                 "userAgent": {
-                  "type": "string",
-                  "description": "User agent string used in the session"
+                  "description": "User agent string used in the session",
+                  "type": "string"
                 },
                 "proxy": {
-                  "type": "string",
-                  "description": "Proxy server used for the session"
+                  "description": "Proxy server used for the session",
+                  "type": "string"
                 },
                 "proxyTxBytes": {
                   "type": "integer",
@@ -814,12 +936,31 @@
                   "description": "Amount of data received through the proxy"
                 },
                 "solveCaptcha": {
-                  "type": "boolean",
-                  "description": "Indicates if captcha solving is enabled"
+                  "description": "Indicates if captcha solving is enabled",
+                  "type": "boolean"
                 },
                 "isSelenium": {
-                  "type": "boolean",
-                  "description": "Indicates if Selenium is used in the session"
+                  "description": "Indicates if Selenium is used in the session",
+                  "type": "boolean"
+                },
+                "deviceConfig": {
+                  "description": "Device configuration for the session",
+                  "type": "object",
+                  "properties": {
+                    "device": {
+                      "default": "desktop",
+                      "type": "string",
+                      "enum": [
+                        "desktop",
+                        "mobile"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "browserProfile": {
+                  "description": "Saved browser profile the session runs in",
+                  "type": "string"
                 }
               },
               "required": [
@@ -851,6 +992,7 @@
         "type": "object",
         "properties": {
           "cookies": {
+            "description": "Cookies to initialize in the session",
             "type": "array",
             "items": {
               "type": "object",
@@ -864,43 +1006,44 @@
                   "description": "The value of the cookie"
                 },
                 "url": {
-                  "type": "string",
-                  "description": "The URL of the cookie"
+                  "description": "The URL of the cookie",
+                  "type": "string"
                 },
                 "domain": {
-                  "type": "string",
-                  "description": "The domain of the cookie"
+                  "description": "The domain of the cookie",
+                  "type": "string"
                 },
                 "path": {
-                  "type": "string",
-                  "description": "The path of the cookie"
+                  "description": "The path of the cookie",
+                  "type": "string"
                 },
                 "secure": {
-                  "type": "boolean",
-                  "description": "Whether the cookie is secure"
+                  "description": "Whether the cookie is secure",
+                  "type": "boolean"
                 },
                 "httpOnly": {
-                  "type": "boolean",
-                  "description": "Whether the cookie is HTTP only"
+                  "description": "Whether the cookie is HTTP only",
+                  "type": "boolean"
                 },
                 "sameSite": {
+                  "description": "The same site attribute of the cookie",
                   "type": "string",
                   "enum": [
                     "Strict",
                     "Lax",
                     "None"
-                  ],
-                  "description": "The same site attribute of the cookie"
+                  ]
                 },
                 "size": {
-                  "type": "number",
-                  "description": "The size of the cookie"
+                  "description": "The size of the cookie",
+                  "type": "number"
                 },
                 "expires": {
-                  "type": "number",
-                  "description": "The expiration date of the cookie"
+                  "description": "The expiration date of the cookie",
+                  "type": "number"
                 },
                 "partitionKey": {
+                  "description": "The partition key of the cookie",
                   "type": "object",
                   "properties": {
                     "topLevelSite": {
@@ -916,38 +1059,37 @@
                     "topLevelSite",
                     "hasCrossSiteAncestor"
                   ],
-                  "additionalProperties": false,
-                  "description": "The partition key of the cookie"
+                  "additionalProperties": false
                 },
                 "session": {
-                  "type": "boolean",
-                  "description": "Whether the cookie is a session cookie"
+                  "description": "Whether the cookie is a session cookie",
+                  "type": "boolean"
                 },
                 "priority": {
+                  "description": "The priority of the cookie",
                   "type": "string",
                   "enum": [
                     "Low",
                     "Medium",
                     "High"
-                  ],
-                  "description": "The priority of the cookie"
+                  ]
                 },
                 "sameParty": {
-                  "type": "boolean",
-                  "description": "Whether the cookie is a same party cookie"
+                  "description": "Whether the cookie is a same party cookie",
+                  "type": "boolean"
                 },
                 "sourceScheme": {
+                  "description": "The source scheme of the cookie",
                   "type": "string",
                   "enum": [
                     "Unset",
                     "NonSecure",
                     "Secure"
-                  ],
-                  "description": "The source scheme of the cookie"
+                  ]
                 },
                 "sourcePort": {
-                  "type": "number",
-                  "description": "The source port of the cookie"
+                  "description": "The source port of the cookie",
+                  "type": "number"
                 }
               },
               "required": [
@@ -955,30 +1097,30 @@
                 "value"
               ],
               "additionalProperties": false
-            },
-            "description": "Cookies to initialize in the session"
+            }
           },
           "localStorage": {
+            "description": "Domain-specific localStorage items to initialize in the session",
             "type": "object",
             "additionalProperties": {
               "type": "object",
               "additionalProperties": {
                 "type": "string"
               }
-            },
-            "description": "Domain-specific localStorage items to initialize in the session"
+            }
           },
           "sessionStorage": {
+            "description": "Domain-specific sessionStorage items to initialize in the session",
             "type": "object",
             "additionalProperties": {
               "type": "object",
               "additionalProperties": {
                 "type": "string"
               }
-            },
-            "description": "Domain-specific sessionStorage items to initialize in the session"
+            }
           },
           "indexedDB": {
+            "description": "Domain-specific indexedDB items to initialize in the session",
             "type": "object",
             "additionalProperties": {
               "type": "array",
@@ -1063,8 +1205,7 @@
                 ],
                 "additionalProperties": false
               }
-            },
-            "description": "Domain-specific indexedDB items to initialize in the session"
+            }
           }
         },
         "additionalProperties": false
@@ -1075,6 +1216,7 @@
         "properties": {
           "events": {
             "type": "array",
+            "items": {},
             "description": "Events to emit"
           }
         },
@@ -1116,6 +1258,7 @@
             "description": "Number of events processed in the session"
           },
           "dimensions": {
+            "description": "Dimensions used for the session",
             "type": "object",
             "properties": {
               "width": {
@@ -1129,8 +1272,7 @@
               "width",
               "height"
             ],
-            "additionalProperties": false,
-            "description": "Dimensions used for the session"
+            "additionalProperties": false
           },
           "timeout": {
             "type": "integer",
@@ -1157,12 +1299,12 @@
             "description": "URL to view session details"
           },
           "userAgent": {
-            "type": "string",
-            "description": "User agent string used in the session"
+            "description": "User agent string used in the session",
+            "type": "string"
           },
           "proxy": {
-            "type": "string",
-            "description": "Proxy server used for the session"
+            "description": "Proxy server used for the session",
+            "type": "string"
           },
           "proxyTxBytes": {
             "type": "integer",
@@ -1175,12 +1317,31 @@
             "description": "Amount of data received through the proxy"
           },
           "solveCaptcha": {
-            "type": "boolean",
-            "description": "Indicates if captcha solving is enabled"
+            "description": "Indicates if captcha solving is enabled",
+            "type": "boolean"
           },
           "isSelenium": {
-            "type": "boolean",
-            "description": "Indicates if Selenium is used in the session"
+            "description": "Indicates if Selenium is used in the session",
+            "type": "boolean"
+          },
+          "deviceConfig": {
+            "description": "Device configuration for the session",
+            "type": "object",
+            "properties": {
+              "device": {
+                "default": "desktop",
+                "type": "string",
+                "enum": [
+                  "desktop",
+                  "mobile"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "browserProfile": {
+            "description": "Saved browser profile the session runs in",
+            "type": "string"
           },
           "success": {
             "type": "boolean",
@@ -1205,36 +1366,239 @@
         ],
         "additionalProperties": false
       },
+      "ReleaseSessionsRequest": {
+        "title": "ReleaseSessionsRequest",
+        "nullable": true,
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "description": "Release only this session; omit to release all live sessions",
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PoolStatus": {
+        "title": "PoolStatus",
+        "type": "object",
+        "properties": {
+          "maxSessions": {
+            "type": "integer"
+          },
+          "live": {
+            "type": "integer"
+          },
+          "free": {
+            "type": "integer"
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "queue": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "position": {
+                  "type": "integer"
+                },
+                "sessionId": {
+                  "type": "string"
+                },
+                "waitingMs": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "position",
+                "sessionId",
+                "waitingMs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "cdpPort": {
+                  "type": "integer"
+                },
+                "primary": {
+                  "type": "boolean"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "free",
+                    "starting",
+                    "live",
+                    "stopping"
+                  ]
+                },
+                "sessionId": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "index",
+                "cdpPort",
+                "primary",
+                "state",
+                "sessionId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "maxSessions",
+          "live",
+          "free",
+          "queued",
+          "queue",
+          "slots"
+        ],
+        "additionalProperties": false
+      },
+      "PoolFullResponse": {
+        "title": "PoolFullResponse",
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "pool_full"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "pool": {
+            "type": "object",
+            "properties": {
+              "max": {
+                "type": "integer"
+              },
+              "live": {
+                "type": "integer"
+              },
+              "queued": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "max",
+              "live",
+              "queued"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "success",
+          "code",
+          "message",
+          "pool"
+        ],
+        "additionalProperties": false
+      },
+      "PoolClosedResponse": {
+        "title": "PoolClosedResponse",
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "shutting_down"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "SessionNotFoundResponse": {
+        "title": "SessionNotFoundResponse",
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "session_not_found"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      },
       "SessionStreamQuery": {
         "title": "SessionStreamQuery",
         "type": "object",
         "properties": {
           "showControls": {
-            "type": "boolean",
             "default": true,
-            "description": "Show controls in the browser iframe"
+            "description": "Show controls in the browser iframe",
+            "type": "boolean"
           },
           "theme": {
+            "default": "dark",
+            "description": "Theme of the browser iframe",
             "type": "string",
             "enum": [
               "dark",
               "light"
-            ],
-            "default": "dark",
-            "description": "Theme of the browser iframe"
+            ]
           },
           "interactive": {
-            "type": "boolean",
             "default": true,
-            "description": "Make the browser iframe interactive"
+            "description": "Make the browser iframe interactive",
+            "type": "boolean"
           },
           "pageId": {
-            "type": "string",
-            "description": "Page ID to connect to"
+            "description": "Page ID to connect to",
+            "type": "string"
           },
           "pageIndex": {
-            "type": "string",
-            "description": "Page index (or tab index) to connect to"
+            "description": "Page index (or tab index) to connect to",
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -1272,8 +1636,8 @@
                   "type": "string"
                 },
                 "favicon": {
-                  "type": "string",
-                  "nullable": true
+                  "nullable": true,
+                  "type": "string"
                 }
               },
               "required": [
@@ -1364,15 +1728,15 @@
             "type": "string"
           },
           "limit": {
+            "default": 100,
             "type": "integer",
             "minimum": 1,
-            "maximum": 1000,
-            "default": 100
+            "maximum": 1000
           },
           "offset": {
+            "default": 0,
             "type": "integer",
-            "minimum": 0,
-            "default": 0
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -1385,14 +1749,14 @@
             "type": "number"
           },
           "oldestEvent": {
+            "nullable": true,
             "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "format": "date-time"
           },
           "newestEvent": {
+            "nullable": true,
             "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "format": "date-time"
           },
           "sizeBytes": {
             "type": "number"
@@ -1456,15 +1820,15 @@
                 "type": "string"
               },
               "limit": {
+                "default": 100,
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 1000,
-                "default": 100
+                "maximum": 1000
               },
               "offset": {
+                "default": 0,
                 "type": "integer",
-                "minimum": 0,
-                "default": 0
+                "minimum": 0
               }
             },
             "additionalProperties": false
@@ -1537,7 +1901,8 @@
             "type": "boolean"
           },
           "cookies": {
-            "type": "array"
+            "type": "array",
+            "items": {}
           },
           "userAgent": {
             "type": "string"
@@ -1549,8 +1914,8 @@
             }
           },
           "logSinkUrl": {
-            "type": "string",
-            "description": "Deprecated"
+            "description": "Deprecated",
+            "type": "string"
           },
           "customHeaders": {
             "type": "object",
@@ -1562,6 +1927,7 @@
             "type": "string"
           },
           "dimensions": {
+            "nullable": true,
             "type": "object",
             "properties": {
               "width": {
@@ -1575,8 +1941,7 @@
               "width",
               "height"
             ],
-            "additionalProperties": false,
-            "nullable": true
+            "additionalProperties": false
           }
         },
         "required": [
@@ -1605,8 +1970,8 @@
             "description": "The file to upload (binary) or URL string to download from"
           },
           "path": {
-            "type": "string",
-            "description": "Path to the file in the storage system"
+            "description": "Path to the file in the storage system",
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -1770,6 +2135,58 @@
         }
       }
     },
+    "/v1/search": {
+      "post": {
+        "operationId": "search",
+        "summary": "Use a search engine to search for URLs given a query",
+        "tags": [
+          "Browser Actions"
+        ],
+        "description": "Use a search engine to search for URLs given a query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pool": {
+      "get": {
+        "operationId": "get_pool_status",
+        "summary": "Get browser slot and queue status",
+        "tags": [
+          "Sessions"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "health",
@@ -1809,6 +2226,26 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SessionDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolFullResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolClosedResponse"
                 }
               }
             }
@@ -1896,6 +2333,16 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionNotFoundResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1940,6 +2387,15 @@
           "Sessions"
         ],
         "description": "Release browser sessions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseSessionsRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Default Response",
@@ -1965,8 +2421,8 @@
         "parameters": [
           {
             "schema": {
-              "type": "boolean",
-              "default": true
+              "default": true,
+              "type": "boolean"
             },
             "in": "query",
             "name": "showControls",
@@ -1975,12 +2431,12 @@
           },
           {
             "schema": {
+              "default": "dark",
               "type": "string",
               "enum": [
                 "dark",
                 "light"
-              ],
-              "default": "dark"
+              ]
             },
             "in": "query",
             "name": "theme",
@@ -1989,8 +2445,8 @@
           },
           {
             "schema": {
-              "type": "boolean",
-              "default": true
+              "default": true,
+              "type": "boolean"
             },
             "in": "query",
             "name": "interactive",
@@ -2014,6 +2470,90 @@
             "name": "pageIndex",
             "required": false,
             "description": "Page index (or tab index) to connect to"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "HTML content for the session streamer view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStreamResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{sessionId}/debug": {
+      "get": {
+        "operationId": "get_session_debugger_stream_by_id",
+        "summary": "Get the live view of one session",
+        "tags": [
+          "Sessions"
+        ],
+        "description": "Returns an HTML page with a live view of one session",
+        "parameters": [
+          {
+            "schema": {
+              "default": true,
+              "type": "boolean"
+            },
+            "in": "query",
+            "name": "showControls",
+            "required": false,
+            "description": "Show controls in the browser iframe"
+          },
+          {
+            "schema": {
+              "default": "dark",
+              "type": "string",
+              "enum": [
+                "dark",
+                "light"
+              ]
+            },
+            "in": "query",
+            "name": "theme",
+            "required": false,
+            "description": "Theme of the browser iframe"
+          },
+          {
+            "schema": {
+              "default": true,
+              "type": "boolean"
+            },
+            "in": "query",
+            "name": "interactive",
+            "required": false,
+            "description": "Make the browser iframe interactive"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "pageId",
+            "required": false,
+            "description": "Page ID to connect to"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "pageIndex",
+            "required": false,
+            "description": "Page index (or tab index) to connect to"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "sessionId",
+            "required": true
           }
         ],
         "responses": {
@@ -2079,6 +2619,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SessionLiveDetailsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionNotFoundResponse"
                 }
               }
             }
@@ -2387,6 +2937,221 @@
         }
       }
     },
+    "/v1/cookie-library": {
+      "get": {
+        "operationId": "list_cookie_sets",
+        "summary": "List saved cookie sets",
+        "tags": [
+          "Cookie library"
+        ],
+        "description": "Lists the cookie library, without cookie values.",
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/cookie-library/{name}": {
+      "get": {
+        "operationId": "get_cookie_set",
+        "summary": "Get a cookie set, values included",
+        "tags": [
+          "Cookie library"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_cookie_set",
+        "summary": "Save a cookie set from cookies you provide (import)",
+        "tags": [
+          "Cookie library"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "cookies": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  },
+                  "localStorage": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "required": [
+                  "cookies"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_cookie_set",
+        "summary": "Delete a cookie set",
+        "tags": [
+          "Cookie library"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/cookie-library/{name}/capture": {
+      "post": {
+        "operationId": "capture_cookie_set",
+        "summary": "Save a live (or the idle) session's cookies and localStorage as a cookie set",
+        "tags": [
+          "Cookie library"
+        ],
+        "description": "Reads the cookies and localStorage of a live session (default: the most recent one) and saves them under this name, replacing any set with the same name. Pass domains to keep only those sites (subdomains included).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "type": "string"
+                  },
+                  "domains": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/browser-profiles": {
+      "get": {
+        "operationId": "list_browser_profiles",
+        "summary": "List saved browsers",
+        "tags": [
+          "Saved browsers"
+        ],
+        "description": "Lists the saved browsers (persistent Chrome profiles) and which session uses each.",
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/browser-profiles/{name}": {
+      "delete": {
+        "operationId": "delete_browser_profile",
+        "summary": "Delete a saved browser",
+        "tags": [
+          "Saved browsers"
+        ],
+        "description": "Deletes a saved browser and everything in it (logins included). Refused while a session uses it.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/vpn": {
+      "get": {
+        "operationId": "get_vpn_providers",
+        "summary": "List VPN providers",
+        "tags": [
+          "Sessions"
+        ],
+        "description": "VPN providers a session can be routed through, and whether each is set up.",
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/v1/logs/query": {
       "get": {
         "tags": [
@@ -2438,10 +3203,10 @@
           },
           {
             "schema": {
+              "default": 100,
               "type": "integer",
               "minimum": 1,
-              "maximum": 1000,
-              "default": 100
+              "maximum": 1000
             },
             "in": "query",
             "name": "limit",
@@ -2449,9 +3214,9 @@
           },
           {
             "schema": {
+              "default": 0,
               "type": "integer",
-              "minimum": 0,
-              "default": 0
+              "minimum": 0
             },
             "in": "query",
             "name": "offset",
@@ -2542,10 +3307,10 @@
           },
           {
             "schema": {
+              "default": 100,
               "type": "integer",
               "minimum": 1,
-              "maximum": 1000,
-              "default": 100
+              "maximum": 1000
             },
             "in": "query",
             "name": "limit",
@@ -2553,9 +3318,9 @@
           },
           {
             "schema": {
+              "default": 0,
               "type": "integer",
-              "minimum": 0,
-              "default": 0
+              "minimum": 0
             },
             "in": "query",
             "name": "offset",
@@ -2585,7 +3350,7 @@
   },
   "servers": [
     {
-      "url": "http://0.0.0.0:3000/",
+      "url": "http://localhost:3000/",
       "description": "Local server"
     },
     {

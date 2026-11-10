@@ -264,7 +264,11 @@ export class CDPService extends EventEmitter {
   }
 
   public isRunning(): boolean {
-    return this.browserInstance?.process() !== null;
+    const browser = this.browserInstance;
+    const process = browser?.process();
+    return (
+      !!browser?.connected && !!process && process.exitCode === null && process.signalCode === null
+    );
   }
 
   public getTargetId(page: Page) {
@@ -921,7 +925,7 @@ export class CDPService extends EventEmitter {
 
         const extensionPaths = await executeCritical(
           async () => {
-            const defaultExtensions = isHeadless ? ["recorder"] : [];
+            const defaultExtensions = isHeadless && env.RRWEB_RECORDING ? ["recorder"] : [];
             const customExtensions = this.launchConfig!.extensions
               ? [...this.launchConfig!.extensions]
               : [];

@@ -10,13 +10,29 @@ and its own profile directory.
 | `MAX_SESSIONS` | `1` | Browsers in the pool, so sessions that can be live at once |
 | `CDP_PORT_BASE` | `9222` | CDP port of slot 0; later slots take the next free ports |
 | `CDP_RESERVED_PORTS` | `9223` | Comma-separated ports never given to a browser (9223 is the bundled nginx CDP proxy) |
+| `SESSION_QUEUE_TIMEOUT_MS` | `0` | Default wait for a browser slot, in milliseconds; zero returns 429 immediately |
+| `SESSION_QUEUE_MAX_MS` | `600000` | Maximum allowed request queue timeout; caps the environment default too |
+| `RRWEB_RECORDING` | `false` | Load the bundled rrweb recorder in headless Chrome |
 
 Give the container enough shared memory (`shm_size`) and RAM for that many
 Chromes (roughly 300 MB to 1 GB each, depending on the pages).
 
 ## API
 
-- `POST /v1/sessions` takes a free slot. When all are taken it answers `429`.
+- `POST /v1/sessions` takes a free slot. When all are taken it answers `429` by default.
+  Pass `{"queueTimeout": 30000}` to wait up to 30 seconds in FIFO order. The timeout
+  covers waiting for a slot, not browser launch. The request must remain connected.
+  Timeout returns `429` with `code: "pool_full"`, `pool: {max, live, queued}` and
+  `Retry-After: 1`. Disconnecting cancels the queued request; shutdown rejects it with
+  `503` and `code: "shutting_down"`. A Selenium request waits for the primary slot;
+  later requests remain behind it even if a secondary slot is free.
+- `GET /v1/pool` returns `maxSessions`, `live`, `free`, `queued`, a FIFO `queue`
+  (`position`, `sessionId`, `waitingMs`) and `slots` (`index`, `cdpPort`, `primary`,
+  `state`, `sessionId`). Slot states are `free`, `starting`, `live` and `stopping`.
+  A session becomes live only after launch succeeds. Release keeps ownership through
+  browser teardown and the primary idle relaunch. Failed cleanup leaves a slot
+  `stopping` and unavailable until the service restarts. Concurrent releases share
+  the same operation.
 - The first slot is the primary browser: it keeps an idle browser between
   sessions, its session's `websocketUrl` stays `ws://host/`, and the unscoped
   endpoints (`/v1/scrape`, `/v1/screenshot`, `/v1/pdf`, the root CDP socket)
@@ -26,7 +42,9 @@ Chromes (roughly 300 MB to 1 GB each, depending on the pages).
 - `GET /v1/sessions` lists live sessions first (newest first), then released
   ones. `GET /v1/sessions/<id>`, `/context`, `/live-details` and
   `POST /v1/sessions/<id>/release` act on that session only;
-  `POST /v1/sessions/release` releases all of them.
+  `POST /v1/sessions/release` with an empty body releases all of them. Supplying
+  `{"sessionId": "<uuid>"}` releases only that session. Unknown IDs on scoped context,
+  stream and live-details endpoints return 404.
 - Per-session sockets: `/v1/sessions/<id>/{cast,logs,pageId,recording}`, or
   the unscoped paths with `?sessionId=<id>`. The live view page is
   `/v1/sessions/<id>/debug`.

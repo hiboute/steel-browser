@@ -23,6 +23,18 @@ import { quickAction } from "../commands/commands.guard.js";
 
 async function routes(server: FastifyInstance) {
   server.get(
+    "/pool",
+    {
+      schema: {
+        operationId: "get_pool_status",
+        tags: ["Sessions"],
+        summary: "Get browser slot and queue status",
+        response: { 200: $ref("PoolStatus") },
+      },
+    },
+    async () => server.sessionService.getPoolStatus(),
+  );
+  server.get(
     "/health",
     {
       schema: {
@@ -50,6 +62,8 @@ async function routes(server: FastifyInstance) {
         body: $ref("CreateSession"),
         response: {
           200: $ref("SessionDetails"),
+          429: $ref("PoolFullResponse"),
+          503: $ref("PoolClosedResponse"),
         },
       },
     },
@@ -101,6 +115,7 @@ async function routes(server: FastifyInstance) {
         summary: "Get a browser context",
         response: {
           200: $ref("SessionContextSchema"),
+          404: $ref("SessionNotFoundResponse"),
         },
       },
     },
@@ -135,6 +150,7 @@ async function routes(server: FastifyInstance) {
         description: "Release browser sessions",
         tags: ["Sessions"],
         summary: "Release browser sessions",
+        body: $ref("ReleaseSessionsRequest"),
         response: {
           200: $ref("ReleaseSession"),
         },
@@ -217,6 +233,7 @@ async function routes(server: FastifyInstance) {
         summary: "Get session live details",
         response: {
           200: $ref("SessionLiveDetailsResponse"),
+          404: $ref("SessionNotFoundResponse"),
         },
       },
     },

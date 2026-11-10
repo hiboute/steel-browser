@@ -10,12 +10,21 @@ import {
 } from "../../services/session.service.js";
 import { CookieSetNotFoundError } from "../../services/cookie-library.service.js";
 import { NordVpnError, nordVpnProxy } from "../../services/nordvpn.service.js";
+import { PoolClosedError } from "../../services/browser-pool.service.js";
 
 export const handleLaunchBrowserSession = async (
   server: FastifyInstance,
   request: CreateSessionRequest,
   reply: FastifyReply,
 ) => {
+  const cancellation = new AbortController();
+  const onAbort = () => cancellation.abort();
+  const onClose = () => {
+    if (!reply.raw.writableFinished) onAbort();
+  };
+  request.raw.once("aborted", onAbort);
+  reply.raw.once("close", onClose);
+  if (request.raw.aborted) onAbort();
   try {
     const {
       sessionId,
@@ -40,6 +49,7 @@ export const handleLaunchBrowserSession = async (
       deviceConfig,
       headless,
       cookieSets,
+      queueTimeout,
     } = request.body;
 
     let mergedContext = sessionContext as
@@ -68,6 +78,8 @@ export const handleLaunchBrowserSession = async (
     }
 
     return await server.sessionService.startSession({
+      queueTimeout,
+      signal: cancellation.signal,
       sessionId,
       proxyUrl: upstream,
       proxyLabel,
@@ -91,17 +103,34 @@ export const handleLaunchBrowserSession = async (
       headless,
     });
   } catch (e: unknown) {
+    if (cancellation.signal.aborted) return reply;
     server.log.error({ err: e }, "Failed lauching browser session");
     const error = getErrors(e);
+    if (e instanceof SessionPoolFullError) {
+      const pool = server.sessionService.getPoolStatus();
+      return reply
+        .code(429)
+        .header("Retry-After", "1")
+        .send({
+          success: false,
+          code: "pool_full",
+          message: error,
+          pool: { max: pool.maxSessions, live: pool.live, queued: pool.queued },
+        });
+    }
+    if (e instanceof PoolClosedError) {
+      return reply.code(503).send({ success: false, code: "shutting_down", message: error });
+    }
     const status =
-      e instanceof SessionPoolFullError
-        ? 429
-        : e instanceof BrowserProfileInUseError
-          ? 409
-          : e instanceof CookieSetNotFoundError || e instanceof NordVpnError
-            ? 400
-            : 500;
+      e instanceof BrowserProfileInUseError
+        ? 409
+        : e instanceof CookieSetNotFoundError || e instanceof NordVpnError
+        ? 400
+        : 500;
     return reply.code(status).send({ success: false, message: error });
+  } finally {
+    request.raw.off("aborted", onAbort);
+    reply.raw.off("close", onClose);
   }
 };
 
@@ -122,7 +151,10 @@ export const handleExitBrowserSession = async (
       const last = released[released.length - 1] ?? server.sessionService.activeSession;
       return reply.send({ success: true, ...last });
     }
-    if (!server.sessionService.getSession(sessionId)) {
+    if (
+      !server.sessionService.getSession(sessionId) &&
+      !server.sessionService.isEnding(sessionId)
+    ) {
       const past = server.sessionService.pastSessions.find((s) => s.id === sessionId);
       if (past) return reply.send({ success: true, ...past });
       return reply.code(404).send({ success: false, message: `Session ${sessionId} not found` });
@@ -140,8 +172,12 @@ export const handleGetBrowserContext = async (
   request: FastifyRequest<{ Params: { sessionId: string } }>,
   reply: FastifyReply,
 ) => {
-  const session = server.sessionService.getSession(request.params.sessionId);
-  const context = await (session?.cdpService ?? server.cdpService).getBrowserState();
+  const session = server.sessionService.findSocketSession(request.params.sessionId);
+  if (!session)
+    return reply
+      .code(404)
+      .send({ success: false, code: "session_not_found", message: "Session not found" });
+  const context = await session.cdpService.getBrowserState();
   return reply.send(context);
 };
 
@@ -211,7 +247,7 @@ export const handleGetSessionStream = async (
   const { showControls, theme, interactive, pageId, pageIndex } = request.query;
   const sessionId = (request.params as { sessionId?: string } | undefined)?.sessionId;
   const session = sessionId
-    ? server.sessionService.getSession(sessionId)
+    ? server.sessionService.findSocketSession(sessionId)
     : server.sessionService.activeSession;
   if (!session) {
     return reply.code(404).send({ success: false, message: `Session ${sessionId} not found` });
@@ -245,8 +281,11 @@ export const handleGetSessionLiveDetails = async (
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply,
 ) => {
-  const session =
-    server.sessionService.getSession(request.params.id) ?? server.sessionService.activeSession;
+  const session = server.sessionService.findSocketSession(request.params.id);
+  if (!session)
+    return reply
+      .code(404)
+      .send({ success: false, code: "session_not_found", message: "Session not found" });
   const cdpService = session.cdpService ?? server.cdpService;
   try {
     const pages = await cdpService.getAllPages();

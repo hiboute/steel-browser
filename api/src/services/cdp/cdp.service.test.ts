@@ -11,6 +11,29 @@ const getBrowserVersion = (host: BrowserVersionHost): Promise<string> =>
 
 const logger = { warn: vi.fn() };
 
+describe("CDPService.isRunning", () => {
+  const running = (browserInstance: unknown) =>
+    CDPService.prototype.isRunning.call({ browserInstance } as unknown as CDPService);
+  it("is false before launch and after disconnection or process exit", () => {
+    expect(running(null)).toBe(false);
+    expect(
+      running({ connected: false, process: () => ({ exitCode: null, signalCode: null }) }),
+    ).toBe(false);
+    expect(running({ connected: true, process: () => ({ exitCode: 0, signalCode: null }) })).toBe(
+      false,
+    );
+    expect(
+      running({ connected: true, process: () => ({ exitCode: null, signalCode: "SIGTERM" }) }),
+    ).toBe(false);
+    expect(running({ connected: true, process: () => null })).toBe(false);
+  });
+  it("is true only for a connected browser with a live owned process", () => {
+    expect(
+      running({ connected: true, process: () => ({ exitCode: null, signalCode: null }) }),
+    ).toBe(true);
+  });
+});
+
 describe("CDPService.getBrowserVersion", () => {
   it("returns the version string reported by the browser", async () => {
     const version = "Chrome/150.0.7871.124";

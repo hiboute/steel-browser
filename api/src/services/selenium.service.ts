@@ -11,6 +11,7 @@ export class SeleniumService extends EventEmitter {
   private port: number = 4444;
   private launchOptions?: BrowserLauncherOptions;
   private logger: FastifyBaseLogger;
+  private closing?: Promise<void>;
 
   constructor(logger: FastifyBaseLogger) {
     super();
@@ -34,7 +35,7 @@ export class SeleniumService extends EventEmitter {
     const logSinkUrl = launchOptions?.logSinkUrl;
 
     if (this.seleniumProcess) {
-      this.close();
+      await this.close();
     }
 
     const projectRoot = path.resolve(dirname(fileURLToPath(import.meta.url)), "../../");
@@ -145,23 +146,41 @@ export class SeleniumService extends EventEmitter {
       });
     } catch (error) {
       if (this.seleniumProcess === seleniumProcess) {
-        this.close();
+        await this.close();
       }
       throw error;
     }
   }
 
-  public close(): void {
+  public close(): Promise<void> {
+    if (this.closing) return this.closing;
     const proc = this.seleniumProcess;
-    if (!proc) {
-      return;
+    if (!proc || proc.exitCode != null || proc.signalCode != null) {
+      this.seleniumProcess = null;
+      return Promise.resolve();
     }
-    try {
-      proc.kill("SIGINT");
-    } catch {
-      // Process might not be running or already killed
-    }
-    this.seleniumProcess = null;
+    const stopped = new Promise<void>((resolve, reject) => {
+      const onClose = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        proc.off("close", onClose);
+        reject(new Error("Selenium process did not stop within 5 seconds"));
+      }, 5000);
+      proc.once("close", onClose);
+      try {
+        proc.kill("SIGINT");
+      } catch (error) {
+        clearTimeout(timer);
+        proc.off("close", onClose);
+        reject(error);
+      }
+    });
+    this.closing = stopped.finally(() => {
+      this.closing = undefined;
+    });
+    return this.closing;
   }
 
   public getSeleniumServerUrl(): string {

@@ -6,6 +6,21 @@ export interface PoolSlot {
   cdpPort: number;
   cdpService: CDPService;
   sessionId: string | null;
+  state: "free" | "starting" | "live" | "stopping";
+}
+
+export class PoolClosedError extends Error {
+  constructor() {
+    super("The browser pool is shutting down");
+    this.name = "PoolClosedError";
+  }
+}
+
+interface SlotRequest {
+  sessionId: string;
+  primaryOnly: boolean;
+  enqueuedAt: number;
+  finish: (slot: PoolSlot | null, error?: Error) => void;
 }
 
 /**
@@ -19,6 +34,8 @@ export interface PoolSlot {
 export class BrowserPool {
   private slots: PoolSlot[];
   private logger: FastifyBaseLogger;
+  private waiters: SlotRequest[] = [];
+  private closed = false;
 
   constructor(
     maxSessions: number,
@@ -41,6 +58,7 @@ export class BrowserPool {
         enableConsoleLogging,
       ),
       sessionId: null,
+      state: "free",
     }));
     this.logger.info(`[BrowserPool] ${size} slot(s), CDP ports ${ports.join(", ")}`);
   }
@@ -61,17 +79,105 @@ export class BrowserPool {
 
   /** Takes the first free slot (the primary first), or null when all are busy. */
   acquire(sessionId: string, options: { primaryOnly?: boolean } = {}): PoolSlot | null {
-    const candidates = options.primaryOnly ? this.slots.slice(0, 1) : this.slots;
-    const slot = candidates.find((s) => s.sessionId === null);
+    if (this.closed) throw new PoolClosedError();
+    // A new arrival must not jump ahead of an existing waiter.
+    if (this.waiters.length) return null;
+    return this.takeSlot(sessionId, options.primaryOnly ?? false);
+  }
+
+  private takeSlot(sessionId: string, primaryOnly: boolean): PoolSlot | null {
+    const candidates = primaryOnly ? this.slots.slice(0, 1) : this.slots;
+    const slot = candidates.find((s) => s.state === "free");
     if (!slot) {
       this.logger.warn(`[BrowserPool] No free slot for session ${sessionId}`);
       return null;
     }
     slot.sessionId = sessionId;
+    slot.state = "starting";
     this.logger.info(
       `[BrowserPool] Slot ${slot.index} (port ${slot.cdpPort}) -> session ${sessionId}`,
     );
     return slot;
+  }
+
+  /** FIFO reservation. A slot remains owned until teardown explicitly releases it. */
+  async acquireWhenAvailable(
+    sessionId: string,
+    options: { primaryOnly?: boolean; timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<PoolSlot | null> {
+    options.signal?.throwIfAborted();
+    const immediate = this.acquire(sessionId, options);
+    if (immediate || !options.timeoutMs) return immediate;
+
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const onAbort = () =>
+        request.finish(null, new DOMException("Request cancelled", "AbortError"));
+      const request: SlotRequest = {
+        sessionId,
+        primaryOnly: options.primaryOnly ?? false,
+        enqueuedAt: Date.now(),
+        finish: (slot, error) => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timer);
+          options.signal?.removeEventListener("abort", onAbort);
+          const index = this.waiters.indexOf(request);
+          if (index !== -1) this.waiters.splice(index, 1);
+          if (error) reject(error);
+          else resolve(slot);
+          this.drain();
+        },
+      };
+      const timer = setTimeout(() => request.finish(null), options.timeoutMs);
+      timer.unref();
+      this.waiters.push(request);
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+      if (options.signal?.aborted) onAbort();
+    });
+  }
+
+  private drain(): void {
+    if (this.closed) return;
+    const first = this.waiters[0];
+    if (!first) return;
+    const slot = this.takeSlot(first.sessionId, first.primaryOnly);
+    if (slot) first.finish(slot);
+  }
+
+  markLive(sessionId: string): void {
+    const slot = this.getSlot(sessionId);
+    if (slot?.state === "starting") slot.state = "live";
+  }
+
+  markStopping(sessionId: string): void {
+    const slot = this.getSlot(sessionId);
+    if (slot) slot.state = "stopping";
+  }
+
+  idleReady(index: number): void {
+    const slot = this.slots[index];
+    if (slot && slot.sessionId === null) {
+      slot.state = "free";
+      this.drain();
+    }
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const waiter of [...this.waiters]) waiter.finish(null, new PoolClosedError());
+  }
+
+  get queue(): { position: number; sessionId: string; waitingMs: number }[] {
+    return this.waiters.map((waiter, index) => ({
+      position: index + 1,
+      sessionId: waiter.sessionId,
+      waitingMs: Math.max(0, Date.now() - waiter.enqueuedAt),
+    }));
+  }
+
+  get queuedCount(): number {
+    return this.waiters.length;
   }
 
   release(sessionId: string): void {
@@ -79,6 +185,8 @@ export class BrowserPool {
     if (slot) {
       this.logger.info(`[BrowserPool] Slot ${slot.index} released by session ${sessionId}`);
       slot.sessionId = null;
+      slot.state = "free";
+      this.drain();
     }
   }
 

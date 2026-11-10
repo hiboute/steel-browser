@@ -12,6 +12,13 @@ export type WorkspaceView =
   | "extensions"
   | "network"
   | "extract"
+  | "inbox"
+  | "automation"
+  | "recovery"
+  | "identity"
+  | "data"
+  | "fleet"
+  | "platform"
   | "operations";
 export const viewNames: Record<WorkspaceView, string> = {
   sessions: "Sessions",
@@ -23,6 +30,13 @@ export const viewNames: Record<WorkspaceView, string> = {
   network: "Network",
   extract: "Extract",
   operations: "Activity & notifications",
+  inbox: "Work inbox",
+  automation: "Procedures & runs",
+  recovery: "Recovery knowledge",
+  identity: "Identity & compatibility",
+  data: "Evidence & workspace",
+  fleet: "Browser fleet",
+  platform: "Browser operations",
 };
 export function Page({
   title,
@@ -371,6 +385,12 @@ type Watcher = {
   egress?: string;
   waitFor?: number | string;
   activeHours?: { start: number; end: number; timezone: string };
+  pageDiff?: {
+    selector?: string;
+    ignoreSelectors?: string[];
+    ignorePatterns?: string[];
+    visual?: boolean;
+  };
   extract: {
     selector?: string;
     attribute?: string;
@@ -455,6 +475,19 @@ export function WatchersPage() {
           fullText: f.get("fullText") === "on",
           ...(schema ? { llm: { schema: JSON.parse(schema), prompt: text(f, "prompt") } } : {}),
         },
+        pageDiff:
+          f.get("pageDiff") === "on"
+            ? {
+                selector: text(f, "diffSelector"),
+                ignoreSelectors: String(f.get("ignoreSelectors") || "")
+                  .split("\n")
+                  .filter(Boolean),
+                ignorePatterns: String(f.get("ignorePatterns") || "")
+                  .split("\n")
+                  .filter(Boolean),
+                visual: f.get("visualDiff") === "on",
+              }
+            : undefined,
         condition: {
           type: condition,
           value: condition === "lt" || condition === "gt" ? Number(value) : value,
@@ -617,6 +650,45 @@ export function WatchersPage() {
             </div>
             <details>
               <summary>Login, network, and extraction options</summary>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  name="pageDiff"
+                  defaultChecked={Boolean(selected?.pageDiff)}
+                />
+                Compare meaningful page changes
+              </label>
+              <Field
+                name="diffSelector"
+                label="Page comparison region"
+                defaultValue={selected?.pageDiff?.selector}
+              />
+              <label className="field">
+                Ignore regions (one CSS selector per line)
+                <textarea
+                  className="input"
+                  name="ignoreSelectors"
+                  rows={3}
+                  defaultValue={selected?.pageDiff?.ignoreSelectors?.join("\n")}
+                />
+              </label>
+              <label className="field">
+                Ignore literal noise (one per line)
+                <textarea
+                  className="input"
+                  name="ignorePatterns"
+                  rows={3}
+                  defaultValue={selected?.pageDiff?.ignorePatterns?.join("\n")}
+                />
+              </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  name="visualDiff"
+                  defaultChecked={selected?.pageDiff?.visual}
+                />
+                Include visual changes
+              </label>
               <Field
                 label="Saved logins (comma separated)"
                 name="cookies"
@@ -885,6 +957,15 @@ export function ExtractPage() {
       title: string;
       model: string;
       markdown?: string;
+      evidence?: {
+        path: string;
+        status: string;
+        url: string;
+        observedAt: string;
+        excerpt?: string;
+        selector?: string;
+        reason?: string;
+      }[];
     } | null>(null);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -957,6 +1038,28 @@ export function ExtractPage() {
             {result.url} · {result.model}
           </small>
           <pre>{JSON.stringify(result.data, null, 2)}</pre>
+          {result.evidence && (
+            <section className="extraction-evidence">
+              <h3>Field evidence</h3>
+              {result.evidence.map((item, index) => (
+                <article className="evidence-row" key={index}>
+                  <span className="status-chip" data-state={item.status}>
+                    {item.status}
+                  </span>
+                  <strong>{item.path}</strong>
+                  {item.excerpt && <blockquote>{item.excerpt}</blockquote>}
+                  {item.reason && <p>{item.reason}</p>}
+                  <small>
+                    <a href={item.url} target="_blank" rel="noreferrer">
+                      Source ↗
+                    </a>{" "}
+                    · {when(item.observedAt)}
+                    {item.selector && ` · ${item.selector}`}
+                  </small>
+                </article>
+              ))}
+            </section>
+          )}
           {result.markdown && (
             <details>
               <summary>Source text</summary>

@@ -2,6 +2,309 @@
   --accent: #15836b;
   --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+.work-list,
+.search-results,
+.document-pages {
+  display: grid;
+  gap: 16px;
+}
+.work-card,
+.work-form,
+.work-result {
+  border: 1px solid var(--sand-5);
+  border-radius: 12px;
+  background: var(--sand-1);
+  padding: 22px;
+  margin: 18px 0;
+  min-width: 0;
+}
+.work-card h2,
+.work-form h2 {
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.work-card p,
+.work-form p {
+  line-height: 1.6;
+}
+.work-form .form-grid {
+  margin: 18px 0;
+  align-items: start;
+}
+.work-form .form-grid > .field:has(textarea),
+.work-form .form-grid > .step-picks,
+.work-form .form-grid > .field-hint {
+  grid-column: 1/-1;
+}
+.work-form .form-grid > .field {
+  min-width: 0;
+}
+.work-form select,
+.work-form textarea {
+  max-width: 100%;
+}
+.work-card[data-unread="true"] {
+  border-left: 3px solid var(--accent);
+}
+.card-heading,
+.assertion-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.card-heading h2 {
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 20px;
+  padding: 4px 9px;
+  background: var(--sand-3);
+  color: var(--sand-11);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+.status-chip[data-state="pass"],
+.status-chip[data-state="verified"],
+.status-chip[data-state="grounded"],
+.status-chip[data-state="completed"],
+.status-chip[data-state="live"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.status-chip[data-state="fail"],
+.status-chip[data-state="failed"],
+.status-chip[data-state="missing"],
+.status-chip[data-state="revoked"] {
+  background: var(--red-3);
+  color: var(--red-11);
+}
+.status-chip[data-state="uncertain"],
+.status-chip[data-state="waiting"],
+.status-chip[data-state="pending"],
+.status-chip[data-state="paused"] {
+  background: var(--amber-3, #fff3d6);
+  color: var(--amber-11, #946400);
+}
+.json-details {
+  min-width: 0;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.json-details summary {
+  cursor: pointer;
+  color: var(--sand-11);
+  padding: 6px 0;
+}
+.json-details pre,
+.work-result pre,
+.document-pages pre {
+  max-height: 500px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--sand-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.button-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 14px 0 0;
+}
+.button-row a,
+.pill-button {
+  text-decoration: none;
+}
+.step-picks {
+  border: 1px solid var(--sand-5);
+  border-radius: 8px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.step-picks legend {
+  font-size: 12px;
+  padding: 0 5px;
+  color: var(--sand-11);
+}
+.step-picks .check-row {
+  justify-content: flex-start;
+  gap: 10px;
+}
+.wide-dialog {
+  width: min(900px, calc(100vw - 32px));
+  max-width: 900px;
+}
+.dialog > .work-form {
+  margin: 0;
+  border: 0;
+}
+.control-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--sand-5);
+  background: var(--sand-2);
+  flex-wrap: wrap;
+}
+.control-strip .button-row {
+  margin: 0;
+}
+.state-explanation {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--sand-4);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.state-explanation summary {
+  cursor: pointer;
+}
+.state-explanation ul {
+  display: grid;
+  gap: 7px;
+  padding-left: 20px;
+}
+.state-explanation time {
+  color: var(--sand-10);
+}
+.learn-resolution {
+  margin: 10px 20px;
+  color: var(--accent);
+}
+.review-proposal {
+  border-left: 3px solid var(--accent);
+  padding: 0 14px;
+  margin: 16px 0;
+}
+.inbox-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 18px 0;
+}
+.inbox-toolbar .input {
+  width: auto;
+}
+.check-results {
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 14px;
+}
+.check-results li {
+  display: grid;
+  grid-template-columns: 80px 120px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border-bottom: 1px solid var(--sand-4);
+  padding-bottom: 10px;
+  font-size: 12px;
+}
+.check-results li small {
+  grid-column: 3;
+  color: var(--sand-10);
+}
+.small-stat {
+  font-size: 16px !important;
+  overflow-wrap: anywhere;
+}
+.diagnostic {
+  border-left: 3px solid var(--sand-7);
+  padding: 10px 14px;
+  background: var(--sand-2);
+  font-size: 12px;
+}
+.diagnostic.error {
+  border-color: var(--red-9);
+}
+.evidence-thumb {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  object-position: top;
+  border-radius: 6px;
+  margin: 12px 0;
+}
+.diff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.diff-added {
+  background: var(--accent-soft);
+  padding: 8px 12px;
+  border-left: 2px solid var(--accent);
+}
+.diff-removed {
+  background: var(--red-3);
+  padding: 8px 12px;
+  border-left: 2px solid var(--red-9);
+}
+.evidence-row {
+  display: grid;
+  gap: 8px;
+  padding: 18px 0;
+  border-top: 1px solid var(--sand-5);
+  font-size: 12px;
+}
+.evidence-row .status-chip {
+  justify-self: start;
+}
+.evidence-row blockquote {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--accent);
+  line-height: 1.7;
+}
+.session-identity-options > .field {
+  margin: 12px 0;
+}
+@media (max-width: 700px) {
+  .work-card,
+  .work-form,
+  .work-result {
+    padding: 16px;
+  }
+  .diff-grid {
+    grid-template-columns: 1fr;
+  }
+  .check-results li {
+    grid-template-columns: 70px 1fr;
+  }
+  .check-results li > span:last-of-type,
+  .check-results li small {
+    grid-column: 2;
+  }
+  .card-heading {
+    align-items: flex-start;
+  }
+  .control-strip {
+    padding: 12px;
+  }
+  .history-tabs {
+    overflow: auto;
+    max-width: 100%;
+  }
+}
 .rail {
   width: 230px;
 }

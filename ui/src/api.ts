@@ -1,4 +1,5 @@
 import type { CreateSession, ReleaseSession, SessionDetails as GeneratedSession } from "./client";
+import { controlHeaders } from "./control";
 
 export type SessionDetails = Omit<GeneratedSession, "status"> & {
   status: "idle" | "live" | "released" | "failed" | "parked";
@@ -38,7 +39,11 @@ export function wsUrl(path: string): string {
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(apiUrl(path), {
     ...init,
-    headers: { "X-Steel-Client": "ui", ...init?.headers },
+    headers: {
+      "X-Steel-Client": "ui",
+      ...controlHeaders(path.match(/^\/v1\/sessions\/([^/?]+)/)?.[1]),
+      ...init?.headers,
+    },
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
@@ -87,6 +92,14 @@ export function createSession(
     record?: boolean;
     queueTimeout?: number;
     extensions?: string[];
+    identityProfile?: string;
+    siteProfile?: string;
+    mobileProfile?: string;
+    compatibilityMode?: "native" | "compatible" | "legacy";
+    continuityPolicy?: "warn" | "require-confirmation";
+    continuityToken?: string;
+    egressPolicy?: "standard" | "strict";
+    siteScope?: string;
   },
   signal?: AbortSignal,
 ): Promise<SessionDetails> {
@@ -180,12 +193,19 @@ export function deleteCookieSet(name: string) {
   });
 }
 
-export function mutate<T>(path: string, body?: unknown, method = "POST", signal?: AbortSignal) {
+export function mutate<T>(
+  path: string,
+  body?: unknown,
+  method = "POST",
+  signal?: AbortSignal,
+  headers?: Record<string, string>,
+) {
   return request<T>(path, {
     method,
     ...(body !== undefined
-      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      ? { headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) }
       : {}),
+    ...(body === undefined ? { headers } : {}),
     signal,
   });
 }
@@ -237,6 +257,7 @@ export type Handoff = {
   reason: string;
   instructions?: string;
   requestedAt: string;
+  resolvedAt?: string | null;
   expiresAt: string;
   liveUrl: string;
   note?: string;

@@ -3,6 +3,7 @@ import { apiUrl, isPrimarySession, type SessionDetails } from "../api";
 import { useColorScheme, usePageId } from "../hooks";
 import { Details } from "./details";
 import { Notice } from "./notice";
+import { useLocalControl } from "../control";
 
 type BridgeMessage = {
   type?: string;
@@ -10,10 +11,11 @@ type BridgeMessage = {
   text?: string;
 };
 
-function LiveFrame({ url }: { url: string }) {
+function LiveFrame({ url, sessionId }: { url: string; sessionId: string }) {
   const container = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const theme = useColorScheme();
+  const control = useLocalControl(sessionId);
 
   const src = useMemo(() => {
     const target = new URL(url, window.location.href);
@@ -21,6 +23,15 @@ function LiveFrame({ url }: { url: string }) {
     target.searchParams.set("clipboardBridge", "true");
     return target;
   }, [url, theme]);
+
+  const postControl = () =>
+    frame.current?.contentWindow?.postMessage(
+      { type: "steel-control", sessionId, token: control?.token ?? null },
+      src.origin,
+    );
+  useEffect(() => {
+    postControl();
+  }, [sessionId, control?.token, src]);
 
   useEffect(() => {
     const origin = src.origin;
@@ -85,6 +96,7 @@ function LiveFrame({ url }: { url: string }) {
         src={src.toString()}
         title="Live browser"
         className="live-frame"
+        onLoad={postControl}
         sandbox="allow-same-origin allow-scripts"
         allow="clipboard-read; clipboard-write"
       />
@@ -120,7 +132,14 @@ export function Stage({
   return (
     <section className="stage" data-devtools={docked ? "open" : "closed"} aria-label="Live view">
       {running && session.debugUrl ? (
-        <LiveFrame url={session.debugUrl} />
+        <LiveFrame
+          sessionId={session.id}
+          url={
+            session.status === "live"
+              ? apiUrl(`/v1/sessions/${encodeURIComponent(session.id)}/debug`)
+              : session.debugUrl
+          }
+        />
       ) : (
         <div className="player">
           {session.status === "parked" ? (

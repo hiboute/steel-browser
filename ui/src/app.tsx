@@ -19,6 +19,12 @@ import {
   type WorkspaceView,
 } from "./components/workspace-pages";
 import { HandoffBanner, SessionHistory } from "./components/session-tools";
+import { InboxPage, RecoveryPage, SessionWorkbench } from "./components/next/workbench";
+import { AutomationPage } from "./components/next/automation";
+import { IdentityPage } from "./components/next/identity";
+import { DataPage } from "./components/next/data";
+import { FleetPage } from "./components/next/fleet";
+import { PlatformPage } from "./components/next/platform";
 
 export function App() {
   const { sessions, error, refresh } = useSessions();
@@ -86,7 +92,21 @@ export function App() {
             view={currentView}
           />
           <PoolSummary />
-          {currentView === "cookies" ? (
+          {currentView === "inbox" ? (
+            <InboxPage />
+          ) : currentView === "automation" ? (
+            <AutomationPage session={session} />
+          ) : currentView === "recovery" ? (
+            <RecoveryPage session={session} />
+          ) : currentView === "identity" ? (
+            <IdentityPage session={session} />
+          ) : currentView === "data" ? (
+            <DataPage session={session} />
+          ) : currentView === "fleet" ? (
+            <FleetPage />
+          ) : currentView === "platform" ? (
+            <PlatformPage session={session} />
+          ) : currentView === "cookies" ? (
             <CookieLibraryPage />
           ) : currentView === "pool" ? (
             <PoolPage />
@@ -104,6 +124,7 @@ export function App() {
             <OperationsPage />
           ) : session ? (
             <div className="session-workspace">
+              <SessionWorkbench key={session.id} session={session} />
               <HandoffBanner session={session} />
               <div className="workspace">
                 <SessionConsole key={session.id} session={session} hidden={!consoleOpen} />

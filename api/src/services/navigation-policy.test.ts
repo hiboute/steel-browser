@@ -125,6 +125,18 @@ describe("server-initiated navigation destination policy", () => {
     vi.stubEnv("EXTRAS_ALLOW_PRIVATE_NETWORKS", "typo");
     expect(extrasAllowPrivateNetworks).toThrow();
   });
+  it("restricts regression requests to exact fixture origins even with private-network opt-in", async () => {
+    const options = { allowPrivateNetworks: true, allowedOrigins: ["http://127.0.0.1:3347"] };
+    await expect(assertAllowedUrl("http://127.0.0.1:3347/fixture", options)).resolves.toContain(
+      "/fixture",
+    );
+    for (const url of [
+      "http://127.0.0.1:3348/",
+      "https://example.org/",
+      "http://127.0.0.1.example.org:3347/",
+    ])
+      await expect(assertAllowedUrl(url, options)).rejects.toThrow("fixture origins");
+  });
 });
 
 const chrome = process.env.CHROME_EXECUTABLE_PATH || "/usr/bin/chromium";
@@ -280,6 +292,38 @@ describe.skipIf(!existsSync(chrome))("real Chromium navigation interception", ()
       options,
     );
     expect(simulatedHttp2).toBe(true);
+  });
+  it("isolates replay fixtures from public-origin forms, popups and outbound connections", async () => {
+    await open();
+    await expect(
+      withNavigationPolicy(
+        page,
+        async () => {
+          await navigate("/");
+          expect(
+            await page.evaluate(
+              (destination) => window.open(destination) === null,
+              `http://other.test:${port}/popup`,
+            ),
+          ).toBe(true);
+          await page.evaluate(async (destination) => {
+            try {
+              await fetch(destination, { method: "POST", body: "should not leave" });
+            } catch {}
+          }, `http://other.test:${port}/fetch`);
+          await page.evaluate((destination) => {
+            const form = document.createElement("form");
+            form.method = "POST";
+            form.action = destination;
+            document.body.append(form);
+            form.submit();
+          }, `http://other.test:${port}/submit`);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        },
+        { ...options, allowedOrigins: [`http://public.test:${port}`] },
+      ),
+    ).rejects.toBeInstanceOf(NavigationPolicyError);
+    expect(hits.some((hit) => hit.includes("other.test"))).toBe(false);
   });
   it("preserves compressed document content while installing the response policy", async () => {
     await open();

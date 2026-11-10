@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { AccessError } from "../../services/control/access.js";
+import { IdentityError } from "../../services/identity/types.js";
 import { getErrors } from "../../utils/errors.js";
 import { CreateSessionRequest, SessionDetails, SessionStreamRequest } from "./sessions.schema.js";
 import { CookieData } from "../../services/context/types.js";
@@ -156,6 +157,13 @@ export const handleLaunchBrowserSession = async (
       return reply.code(e.statusCode).send({ success: false, code: e.code, message: e.message });
     if (e instanceof SessionStateError)
       return reply.code(e.statusCode).send({ success: false, code: e.code, message: e.message });
+    if (e instanceof IdentityError)
+      return reply.code(e.statusCode).send({
+        success: false,
+        code: e.code,
+        message: e.message,
+        ...(e.detail === undefined ? {} : { detail: e.detail }),
+      });
     if (e instanceof CookieSetDeniedError)
       return reply
         .code(403)

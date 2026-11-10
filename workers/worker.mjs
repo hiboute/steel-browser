@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { commands, createAdapter } from "./adapters.mjs";
 
 export class BrowserWorker {
-  constructor(options) { this.options = options; this.sessions = new Map(); this.running = new Map(); this.results = new Map(); this.stopped = false; }
+  constructor(options) { this.options = options; this.sessions = new Map(); this.running = new Map(); this.results = new Map(); this.fencedSessions = new Set(); this.stopped = false; }
   async request(route, body, token = this.credentials?.token) {
     const response = await fetch(this.options.coordinator + "/v1/fleet/worker" + route, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
     if (response.status === 401 || response.status === 403) { const error = new Error("worker_revoked_or_unauthorized"); error.fatal = true; throw error; }
@@ -29,16 +29,20 @@ export class BrowserWorker {
     let result, error;
     try {
       if (command.generation !== this.credentials.generation) throw new Error("stale_worker_generation");
+      if (command.kind !== "close" && (this.stopped || this.fencedSessions.has(command.sessionId))) throw new Error("worker_session_fenced");
       if (command.kind === "launch") {
         if (this.sessions.size >= this.options.capabilities.capacity) throw new Error("worker_capacity");
         if (!this.options.capabilities.engines.includes(command.payload.engine)) throw new Error("unsupported_engine");
         if (command.payload.egressPolicy === "strict" && !this.options.capabilities.strictEgress) throw new Error("strict_boundary_unavailable");
         const adapter = (this.options.adapterFactory ?? createAdapter)(command.payload.engine, { ...this.options.adapter, profileRoot: this.profileRoot, strict: this.options.capabilities.strictEgress });
-        try { result = await adapter.launch(command.sessionId, command.payload); this.sessions.set(command.sessionId, adapter); } catch (e) { await adapter.close().catch(() => {}); throw e; }
+        try { result = await adapter.launch(command.sessionId, command.payload); if (this.stopped || this.fencedSessions.has(command.sessionId)) throw new Error("worker_session_fenced"); this.sessions.set(command.sessionId, adapter); } catch (e) { await adapter.close().catch(() => {}); throw e; }
       } else {
-        const adapter = this.sessions.get(command.sessionId); if (!adapter) throw new Error("browser_not_available");
-        result = await adapter.execute(command.kind, command.payload); if (command.kind === "close") this.sessions.delete(command.sessionId);
+        const adapter = this.sessions.get(command.sessionId);
+        if (!adapter && command.kind === "close") result = { closed: true, alreadyClosed: true };
+        else { if (!adapter) throw new Error("browser_not_available"); result = await adapter.execute(command.kind, command.payload); }
+        if (command.kind === "close") this.sessions.delete(command.sessionId);
       }
+      if (command.kind !== "close" && (this.stopped || this.fencedSessions.has(command.sessionId))) throw new Error("worker_session_fenced");
     } catch (e) { /* Never serialize engine errors: they can include typed values, URLs or proxy credentials. */ error = /^[a-z_]{1,80}$/.test(e.message) ? e.message : "browser_command_failed"; }
     this.results.set(command.id, { generation: command.generation, result, error });
   }
@@ -46,7 +50,7 @@ export class BrowserWorker {
     for (const [id, result] of this.results) { await this.request(`/${this.credentials.workerId}/commands/${id}/result`, result); this.results.delete(id); }
     const response = await this.request(`/${this.credentials.workerId}/poll`, { liveSessionIds: [...this.sessions.keys()] });
     if (response.revoked || response.generation !== this.credentials.generation) throw Object.assign(new Error("worker_revoked_or_fenced"), { fatal: true });
-    for (const sessionId of response.fencedSessionIds ?? []) { const adapter = this.sessions.get(sessionId); if (adapter) { await adapter.close().catch(() => {}); this.sessions.delete(sessionId); } }
+    for (const sessionId of response.fencedSessionIds ?? []) { this.fencedSessions.add(sessionId); const adapter = this.sessions.get(sessionId); if (adapter) { await adapter.close().catch(() => {}); this.sessions.delete(sessionId); } }
     for (const command of response.commands) {
       if (this.running.has(command.id) || this.results.has(command.id)) continue;
       const task = this.execute(command).finally(() => this.running.delete(command.id)); this.running.set(command.id, task);
@@ -61,7 +65,7 @@ export class BrowserWorker {
       await delay(Math.min(1000 * Math.max(1, failures), 10_000));
     }
   }
-  async close() { this.stopped = true; await Promise.allSettled([...this.running.values()]); await Promise.allSettled([...this.sessions.values()].map(adapter => adapter.close())); this.sessions.clear(); }
+  async close() { this.stopped = true; await Promise.allSettled([...this.sessions.values()].map(adapter => adapter.close())); this.sessions.clear(); await Promise.allSettled([...this.running.values()]); }
 }
 
 export async function fromEnvironment() {

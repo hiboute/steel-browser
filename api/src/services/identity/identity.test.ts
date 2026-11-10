@@ -237,7 +237,8 @@ describe("site profiles and continuity", () => {
   it("detects IP/upstream rotation, requires a drift-bound token and persists confirmation across restart", async () => {
     let ip = "203.0.113.1",
       upstream = "https://user:password@proxy-a.test:443",
-      healthy = true;
+      healthy = true,
+      probeRevision = 0;
     const options = {
       ...base(),
       identityProfile: "acct",
@@ -250,7 +251,14 @@ describe("site profiles and continuity", () => {
       getSession: () => null as never,
       getOptions: () => options,
       browserVersion: async () => version,
-      egressProbe: async () => ({ healthy, publicIp: healthy ? ip : null, country: "FR" }),
+      egressProbe: async () => ({
+        healthy,
+        publicIp: healthy ? ip : null,
+        country: "FR",
+        checkedAt: new Date(++probeRevision * 1000).toISOString(),
+        name: "home",
+        label: `probe-${probeRevision}`,
+      }),
       resolveEgress: async () => ({ proxyUrl: upstream }),
     };
     const s = new IdentityService(deps);
@@ -258,6 +266,8 @@ describe("site profiles and continuity", () => {
     expect(first.status).toBe("new");
     expect(JSON.stringify(first)).not.toContain(ip);
     expect(JSON.stringify(first)).not.toContain("password");
+    const unchanged = await s.sessionContinuity("s");
+    expect(unchanged.confirmationToken).toBe(first.confirmationToken);
     await s.confirmContinuity("s", first.confirmationToken);
     ip = "203.0.113.2";
     upstream = "https://proxy-b.test:443";

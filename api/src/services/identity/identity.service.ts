@@ -171,7 +171,18 @@ export function contradictions(
     if (platform && platform !== observed.clientHints.platform)
       add("platform_mismatch", "UA platform differs from Client Hints platform", "error");
   }
-  if (requested.timezone && observed?.timezone !== requested.timezone)
+  const canonicalTimezone = (value: string) => {
+    try {
+      return new Intl.DateTimeFormat("en", { timeZone: value }).resolvedOptions().timeZone;
+    } catch {
+      return value;
+    }
+  };
+  if (
+    requested.timezone &&
+    (!observed?.timezone ||
+      canonicalTimezone(observed.timezone) !== canonicalTimezone(requested.timezone))
+  )
     add("timezone_mismatch", "Requested and measured timezones differ");
   if (
     requested.locale &&

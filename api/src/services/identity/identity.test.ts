@@ -169,6 +169,16 @@ describe("versioned coherent identities", () => {
     await service.prepare(options);
     expect(options.fingerprint).toEqual({ sentinel: true });
   });
+  it("compares canonical timezone aliases without hiding explicit mismatches", () => {
+    expect(contradictions({ timezone: "Asia/Kolkata" }, { timezone: "Asia/Calcutta" }, "Chrome/149"))
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]));
+    expect(contradictions({ timezone: "Etc/UTC" }, { timezone: "UTC" }, "Chrome/149"))
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]));
+    expect(contradictions({ timezone: "Europe/Paris" }, { timezone: "UTC" }, "Chrome/149"))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]));
+    expect(contradictions({ timezone: "Europe/Paris" }, {}, "Chrome/149"))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]));
+  });
   it("reports contradictory UA/platform/mobile and compares JS with collector headers", () => {
     const issues = contradictions(
       { userAgent: "Chrome/148.0.0.0 Windows" },

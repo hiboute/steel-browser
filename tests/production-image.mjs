@@ -13,6 +13,7 @@ const { withNavigationPolicy } = await import("/app/api/build/services/navigatio
 const root = await mkdtemp(path.join(os.tmpdir(), "steel-production-image-"));
 const token = "production-image-fixture-credential-only";
 const checks = [];
+const evidence = { schemaVersion: 1, revision: process.env.STEEL_BUILD_REVISION, checkedAt: new Date().toISOString(), passed: false, checks, identities: [] };
 const fixture = createServer((req, res) => { res.setHeader("content-type", "text/html"); res.end('<title>Exact image fixture</title><h1>Production runtime verified</h1><input id="value"><button id="save">Save</button><p id="result"></p><script>document.querySelector("#save").onclick=()=>{document.querySelector("#result").textContent=document.querySelector("#value").value;localStorage.setItem("saved",document.querySelector("#value").value)}</script>'); });
 await new Promise(resolve => fixture.listen(0, "127.0.0.1", resolve));
 const fixtureUrl = `http://127.0.0.1:${fixture.address().port}/`;
@@ -21,7 +22,7 @@ const headers = { "content-type": "application/json", authorization: `Bearer ${t
 const call = async (route, method = "GET", body, extraHeaders = {}) => { const r = await fetch(`http://127.0.0.1:3300${route}`, { method, headers: { ...headers, ...extraHeaders }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(45_000) }); const data = await r.json(); assert(r.ok, `${method} ${route}: ${r.status} ${JSON.stringify(data)}`); return data; };
 try {
   browser = await puppeteer.launch({ executablePath: process.env.CHROME_BIN ?? "/usr/bin/chromium", headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
-  const actualVersion = await browser.version(); assert.match(actualVersion, /Chrome\/\d+/); const page = await browser.newPage();
+  const actualVersion = await browser.version(); evidence.browserVersion = actualVersion; assert.match(actualVersion, /Chrome\/\d+/); const page = await browser.newPage();
   await page.goto(fixtureUrl); assert.equal(await page.title(), "Exact image fixture"); await page.type("#value", "receipt verified"); await page.click("#save"); assert.equal(await page.$eval("#result", e => e.textContent), "receipt verified"); checks.push("browser navigation/input/outcome");
   assert((await page.screenshot()).length > 500); checks.push("real renderer screenshot");
   const createSession = page.createCDPSession.bind(page); let http2Seen = false;
@@ -34,12 +35,14 @@ try {
   for (const mode of ["native", "compatible"]) {
     const created = await call("/v1/sessions", "POST", { headless: true, compatibilityMode: mode }); const id = created.id ?? created.session?.id; assert(id, "Session creation returns id"); sessions.push(id);
     const owned = await call(`/v1/sessions/${id}/control/acquire`, "POST", { mode: "agent", ttlMs: 120000 }); const lease = owned.token; assert(lease, "Control lease issued");
-    const identity = await call(`/v1/sessions/${id}/identity`); assert.match(identity.browserVersion, /\d+/); assert.equal(identity.observed.status, "measured"); assert(!identity.issues.some(i => i.severity === "error"), JSON.stringify(identity.issues));
+    const identity = await call(`/v1/sessions/${id}/identity`); evidence.identities.push({ mode, browserVersion: identity.browserVersion, userAgent: identity.observed.values?.userAgent, collector: identity.collector, issues: identity.issues }); assert.match(identity.browserVersion, /\d+/); assert.equal(identity.observed.status, "measured"); assert(!identity.issues.some(i => i.severity === "error"), JSON.stringify({ mode, actual: identity.browserVersion, userAgent: identity.observed.values?.userAgent, issues: identity.issues }));
     const lab = await call("/v1/compatibility/runs", "POST", { sessionId: id }, { "x-steel-control": lease }); assert(!lab.checks.some(c => c.status === "fail"), JSON.stringify(lab.checks)); checks.push(`${mode} identity and compatibility fixtures`);
     await call(`/v1/sessions/${id}/release`, "POST", {}, { "x-steel-control": lease });
   }
-  const report = { schemaVersion: 1, revision: process.env.STEEL_BUILD_REVISION, browserVersion: actualVersion, checks, passed: true, testedAt: new Date().toISOString() };
+  const report = { ...evidence, browserVersion: actualVersion, checks, passed: true, testedAt: new Date().toISOString() };
   await writeFile(process.env.STEEL_IMAGE_REPORT ?? "/tmp/production-image-report.json", JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
+} catch (error) {
+  await writeFile(process.env.STEEL_IMAGE_REPORT ?? "/tmp/production-image-report.json", JSON.stringify({ ...evidence, error: String(error.message).slice(0, 5000) }, null, 2)); throw error;
 } finally {
   await browser?.close(); if (api && api.exitCode === null) { api.kill("SIGTERM"); await Promise.race([new Promise(resolve => api.once("exit", resolve)), delay(40_000).then(() => api.kill("SIGKILL"))]); }
   await new Promise(resolve => fixture.close(resolve)); await rm(root, { recursive: true, force: true });

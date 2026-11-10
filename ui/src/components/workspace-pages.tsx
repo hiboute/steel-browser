@@ -4,6 +4,7 @@ import { useResource } from "../hooks";
 import { bytes } from "./session-tools";
 
 export type WorkspaceView =
+  | "home"
   | "sessions"
   | "cookies"
   | "pool"
@@ -21,6 +22,7 @@ export type WorkspaceView =
   | "platform"
   | "operations";
 export const viewNames: Record<WorkspaceView, string> = {
+  home: "Home",
   sessions: "Sessions",
   cookies: "Saved logins",
   pool: "Browser pool",

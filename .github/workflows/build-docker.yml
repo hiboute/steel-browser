@@ -24,9 +24,9 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: Build candidates once
         run: |
-          docker build --label org.opencontainers.image.revision="$GITHUB_SHA" -t steel-api-candidate -f api/Dockerfile .
-          docker build --label org.opencontainers.image.revision="$GITHUB_SHA" -t steel-ui-candidate -f ui/Dockerfile .
-          docker build --label org.opencontainers.image.revision="$GITHUB_SHA" -t steel-worker-candidate -f workers/Dockerfile .
+          docker build --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" --label org.opencontainers.image.revision="$GITHUB_SHA" -t steel-api-candidate -f api/Dockerfile .
+          docker build --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" --label org.opencontainers.image.revision="$GITHUB_SHA" -t steel-ui-candidate -f ui/Dockerfile .
+          docker build --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" --label org.opencontainers.image.revision="$GITHUB_SHA" -t steel-worker-candidate -f workers/Dockerfile .
       - name: Test the exact API image and installed Chromium
         run: |
           mkdir -p image-evidence

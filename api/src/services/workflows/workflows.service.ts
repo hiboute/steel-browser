@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requestSchema } from "../commands/commands.js";
+import { parseRef } from "../commands/refs.js";
 import { validateExtractedData } from "../extract-validation.js";
 import type { PlatformStore } from "../platform/store.js";
 import type { PlatformEvents } from "../platform/events.js";
@@ -227,8 +228,10 @@ export class WorkflowService {
     if (new Set(ids).size !== ids.length)
       throw new WorkflowError("duplicate_step", "Procedure step IDs must be unique");
     await validateInputSchema(parsed.inputSchema);
-    for (const step of parsed.steps)
+    for (const step of parsed.steps) {
+      if (step.kind === "commands") this.assertStableCommands(step.input);
       if (step.kind === "assert") {
+        this.assertStableCommands({ commands: [step.assertion.command] });
         AssertionSchema.parse(step.assertion);
         if (!readOnly.has(String(step.assertion.command.command)))
           throw new WorkflowError(
@@ -236,7 +239,31 @@ export class WorkflowService {
             "Assertion commands must be declared read-only",
           );
       }
+    }
     return parsed;
+  }
+  private assertStableCommands(input: Record<string, unknown>) {
+    if (
+      input.after !== undefined ||
+      (input.observe as { base?: unknown } | undefined)?.base !== undefined
+    )
+      throw new WorkflowError(
+        "ephemeral_procedure_state",
+        "Procedure versions cannot retain live command continuity or snapshot tokens",
+      );
+    const checkTarget = (target: unknown) => {
+      if (Array.isArray(target)) target.forEach(checkTarget);
+      else if (typeof target === "string" && parseRef(target))
+        throw new WorkflowError(
+          "ephemeral_procedure_ref",
+          "Replace snapshot references with stable locators before saving a procedure",
+        );
+    };
+    const commands = Array.isArray(input.commands) ? input.commands : [input.commands];
+    for (const command of commands)
+      if (command && typeof command === "object")
+        for (const key of ["target", "source", "frame"])
+          checkTarget((command as Record<string, unknown>)[key]);
   }
   async saveProcedure(input: unknown, actor: WorkflowActor): Promise<ProcedureVersion> {
     this.assertActor(actor);
@@ -324,6 +351,7 @@ export class WorkflowService {
         continue;
       }
       const commands = requestSchema.parse(step.input);
+      this.assertStableCommands(commands);
       validateSafePayload(commands);
       if (step.review)
         steps.push({
@@ -380,11 +408,13 @@ export class WorkflowService {
   ) {
     if (!Array.isArray(input.actions) || input.actions.length > 100)
       throw new WorkflowError("invalid_actions", "Select at most 100 command actions");
-    const steps = input.actions.map((action) => ({
-      id: ProductId.parse(action.id),
-      kind: "commands" as const,
-      input: requestSchema.parse(action.input),
-    }));
+    const steps = input.actions.map((action) => {
+      const request = requestSchema.parse(action.input);
+      delete request.after;
+      if (request.observe?.base)
+        request.observe = { ...request.observe, mode: "snapshot", base: undefined };
+      return { id: ProductId.parse(action.id), kind: "commands" as const, input: request };
+    });
     return this.saveProcedure({ name: input.name, steps, inputSchema: input.inputSchema }, actor);
   }
 
@@ -832,7 +862,7 @@ export class WorkflowService {
       throw new WorkflowError("invalid_webhook", "Invalid webhook credentials", 401);
     if (!/^[a-zA-Z0-9_.:-]{1,128}$/.test(eventId))
       throw new WorkflowError("invalid_event_id", "A bounded unique event ID is required");
-    return this.fire(schedule, `webhook:${eventId}`);
+    return this.fire(schedule, `webhook:${eventId}`, digest(token));
   }
   private async onWatcher(eventId: string, data: unknown) {
     const event = data as { watcherId?: string; matched?: boolean };
@@ -844,10 +874,16 @@ export class WorkflowService {
       )
         await this.fire(schedule, `watcher:${eventId}`);
   }
-  private async fire(schedule: ScheduleRecord, key: string): Promise<TriggerRecord> {
+  private async fire(
+    schedule: ScheduleRecord,
+    key: string,
+    webhookHash?: string,
+  ): Promise<TriggerRecord> {
     return this.serial(async () => {
       const current = this.manifest.schedules[schedule.id];
       if (!current) throw new WorkflowError("schedule_not_found", "Schedule no longer exists", 404);
+      if (webhookHash && (!current.webhookHash || !equalDigest(current.webhookHash, webhookHash)))
+        throw new WorkflowError("invalid_webhook", "Webhook credentials changed", 401);
       const id = digest({ scheduleId: schedule.id, key });
       const path = `workflows/deliveries/${id}.json`;
       const previous = await this.deps.store.read<TriggerRecord>(path);
@@ -855,35 +891,66 @@ export class WorkflowService {
       const record: TriggerRecord = previous ?? {
         id,
         scheduleId: schedule.id,
-        ownerId: schedule.ownerId,
+        ownerId: current.ownerId,
         key,
         state: "pending",
         at: this.now().toISOString(),
-        deadlineAt: new Date(this.now().getTime() + schedule.deadlineSeconds * 1000).toISOString(),
+        deadlineAt: new Date(this.now().getTime() + current.deadlineSeconds * 1000).toISOString(),
+        definition: {
+          procedureId: current.procedureId,
+          version: current.version,
+          inputs: structuredClone(current.inputs),
+          sessionId: current.sessionId,
+          sessionOptions: structuredClone(current.sessionOptions),
+        },
       };
-      const actor = this.systemActor(schedule.ownerId);
-      const active = (await this.deps.runtime.list(actor)).filter(
+      const actor = this.systemActor(record.ownerId);
+      const runs = await this.deps.runtime.list(actor);
+      const admitted = runs.find((r) => r.metadata?.productDeliveryId === id);
+      const active = runs.filter(
         (r) => r.metadata?.productScheduleId === schedule.id && !terminal.has(r.status),
       );
-      if (!current.enabled || active.length >= schedule.maxConcurrent) {
+      if (admitted) {
+        record.runId = admitted.id;
+        record.state = "started";
+        if (Date.parse(record.deadlineAt) < this.now().getTime() && !terminal.has(admitted.status))
+          await this.deps.runtime.cancel(admitted.id, actor);
+      } else if (Date.parse(record.deadlineAt) < this.now().getTime()) {
         record.state = "skipped";
-        record.reason = !current.enabled ? "schedule_disabled" : "concurrency_limit";
+        record.reason = "delivery_deadline_expired";
+      } else if (
+        !current.enabled ||
+        current.ownerId !== record.ownerId ||
+        active.length >= current.maxConcurrent
+      ) {
+        record.state = "skipped";
+        record.reason = !current.enabled
+          ? "schedule_disabled"
+          : current.ownerId !== record.ownerId
+          ? "schedule_owner_changed"
+          : "concurrency_limit";
       } else {
         await this.deps.store.write(path, record);
         try {
           // Use the same delivery key after a crash; the durable runner deduplicates creation.
-          const procedure = this.getProcedure(schedule.procedureId, schedule.version, actor);
+          if (!record.definition)
+            throw new WorkflowError(
+              "delivery_definition_missing",
+              "Interrupted delivery has no immutable definition",
+            );
+          const definition = record.definition;
+          const procedure = this.getProcedure(definition.procedureId, definition.version, actor);
           const run = await this.startProcedure(
             procedure.id,
             {
               version: procedure.version,
-              inputs: schedule.inputs,
-              sessionId: schedule.sessionId,
-              sessionOptions: schedule.sessionOptions,
+              inputs: definition.inputs,
+              sessionId: definition.sessionId,
+              sessionOptions: definition.sessionOptions,
               idempotencyKey: id,
             },
             actor,
-            { metadata: { productScheduleId: schedule.id } },
+            { metadata: { productScheduleId: schedule.id, productDeliveryId: id } },
           );
           record.runId = run.id;
           record.state = "started";

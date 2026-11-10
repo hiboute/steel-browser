@@ -274,6 +274,10 @@ export interface TriggerRecord {
   runId?: string;
   reason?: string;
   deadlineAt: string;
+  definition?: Pick<
+    ScheduleRecord,
+    "procedureId" | "version" | "inputs" | "sessionId" | "sessionOptions"
+  >;
 }
 
 export const ReplayInputSchema = z

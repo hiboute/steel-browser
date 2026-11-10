@@ -225,6 +225,33 @@ describe("immutable procedures and safe compilation", () => {
       alice,
     );
     expect(saved.steps).toHaveLength(1);
+    const portable = await service.createFromActions(
+      {
+        name: "Portable",
+        actions: [
+          {
+            id: "read",
+            input: {
+              after: "old-session-token",
+              commands: [{ command: "get", what: "title" }],
+              observe: { mode: "diff", base: "old-snapshot" },
+            },
+          },
+        ],
+      },
+      alice,
+    );
+    expect((portable.steps[0] as any).input.after).toBeUndefined();
+    expect((portable.steps[0] as any).input.observe.mode).toBe("snapshot");
+    await expect(
+      service.createFromActions(
+        {
+          name: "Stale",
+          actions: [{ id: "click", input: { commands: [{ command: "click", target: "@e1" }] } }],
+        },
+        alice,
+      ),
+    ).rejects.toMatchObject({ code: "ephemeral_procedure_ref" });
   });
 });
 
@@ -469,6 +496,100 @@ describe("durable schedules and triggers", () => {
     await expect(service.removeProcedure(p.id, alice)).rejects.toMatchObject({
       code: "procedure_in_use",
     });
+  });
+  it("recovers a delivery created before a crash without treating its own run as competing work", async () => {
+    const p = await saved();
+    const schedule = await service.putSchedule(
+      { name: "Recover", procedureId: p.id, version: 1, trigger: { kind: "webhook" } },
+      alice,
+    );
+    const first = await service.webhook(schedule.id, schedule.webhookToken!, "crash");
+    const file = `workflows/deliveries/${first.id}.json`;
+    const interrupted = { ...first, state: "pending", runId: undefined };
+    await store.write(file, interrupted);
+    await service.tick();
+    const recovered = await store.read<any>(file);
+    expect(recovered.state).toBe("started");
+    expect(recovered.runId).toBe(first.runId);
+    expect(runtime.calls).toHaveLength(1);
+  });
+  it("pins pending delivery inputs over schedule edits and refuses expired work before admission", async () => {
+    const p = await service.saveProcedure(
+      {
+        name: "Parameterized",
+        inputSchema: {
+          type: "object",
+          properties: { title: { type: "string" } },
+          required: ["title"],
+        },
+        steps: [
+          {
+            id: "read",
+            kind: "assert",
+            assertion: {
+              id: "title",
+              label: "Title",
+              command: { command: "get", what: "title" },
+              operator: "equals",
+              expected: { $input: "title" },
+            },
+          },
+        ],
+      },
+      alice,
+    );
+    const schedule = await service.putSchedule(
+      {
+        name: "Pending",
+        procedureId: p.id,
+        version: 1,
+        inputs: { title: "Original" },
+        trigger: { kind: "webhook" },
+      },
+      alice,
+    );
+    const key = "webhook:pending",
+      id = digest({ scheduleId: schedule.id, key });
+    await store.write(`workflows/deliveries/${id}.json`, {
+      id,
+      scheduleId: schedule.id,
+      ownerId: alice.id,
+      key,
+      state: "pending",
+      at: now.toISOString(),
+      deadlineAt: new Date(now.getTime() + 60000).toISOString(),
+      definition: { procedureId: p.id, version: 1, inputs: { title: "Original" } },
+    });
+    await service.putSchedule(
+      {
+        id: schedule.id,
+        name: "Edited",
+        procedureId: p.id,
+        version: 1,
+        inputs: { title: "Edited" },
+        trigger: { kind: "webhook" },
+      },
+      alice,
+    );
+    await service.tick();
+    expect((runtime.calls[0].input.steps[0].input as any).expected).toBe("Original");
+    const expiredKey = "webhook:expired",
+      expiredId = digest({ scheduleId: schedule.id, key: expiredKey });
+    await store.write(`workflows/deliveries/${expiredId}.json`, {
+      id: expiredId,
+      scheduleId: schedule.id,
+      ownerId: alice.id,
+      key: expiredKey,
+      state: "pending",
+      at: now.toISOString(),
+      deadlineAt: new Date(now.getTime() - 1).toISOString(),
+      definition: { procedureId: p.id, version: 1, inputs: { title: "Never execute" } },
+    });
+    await service.tick();
+    expect(runtime.calls).toHaveLength(1);
+    expect((await store.read<any>(`workflows/deliveries/${expiredId}.json`)).reason).toBe(
+      "delivery_deadline_expired",
+    );
   });
   it("daily DST gaps skip absent wall times and repeated hours only run once per date", () => {
     expect(

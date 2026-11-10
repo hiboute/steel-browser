@@ -228,13 +228,19 @@ export class OwnershipService {
     });
     return { ticket, expiresAt: new Date(expires).toISOString() };
   }
-  consumeTicket(ticket: string, id: string, channel: string): ConnectionCredential {
+  inspectTicket(ticket: string, id: string, channel: string): ConnectionCredential {
     const t = this.tickets.get(ticket);
-    this.tickets.delete(ticket);
     if (!t || t.expires <= Date.now() || t.channel !== channel || t.credential.sessionId !== id)
       throw new AccessError("invalid_ticket", "Control ticket is invalid or expired");
     this.assertConnection(t.credential);
     return t.credential;
+  }
+  consumeTicket(ticket: string, id: string, channel: string): ConnectionCredential {
+    try {
+      return this.inspectTicket(ticket, id, channel);
+    } finally {
+      this.tickets.delete(ticket);
+    }
   }
   assertConnection(c: ConnectionCredential) {
     if (c.observer) {

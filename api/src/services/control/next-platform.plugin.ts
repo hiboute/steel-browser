@@ -11,6 +11,7 @@ import { SessionCommands } from "../commands/registry.js";
 import { RunService } from "../runs/runs.service.js";
 import { CheckpointService } from "../checkpoints/checkpoints.service.js";
 import { DoctorService } from "../doctor/doctor.service.js";
+import devtoolsRoutes from "../../modules/next-platform/devtools.routes.js";
 import nextRoutes from "../../modules/next-platform/next-platform.routes.js";
 
 declare module "fastify" {
@@ -329,5 +330,6 @@ const plugin: FastifyPluginAsync = async (server) => {
     unsubscribeEvents();
   });
   await server.register(nextRoutes, { prefix: "/v1" });
+  await server.register(devtoolsRoutes, { prefix: "/v1" });
 };
 export default fp(plugin, { name: "next-platform", dependencies: ["steel-platform"] });

@@ -5,6 +5,7 @@ import { WebSocketServer } from "ws";
 import { WebSocketRegistryService } from "../../services/websocket-registry.service.js";
 import { WebSocketHandler, WebSocketHandlerContext } from "../../types/websocket.js";
 import { env } from "../../env.js";
+import { scopedCdpEndpoint } from "../../services/control/devtools.js";
 import { guardedCdp } from "../../services/control/socket.js";
 import { observeCdpActivity } from "../../services/session-activity.js";
 import { defaultHandlers } from "./handlers/index.js";
@@ -175,7 +176,7 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
               socket,
               head,
               wss,
-              context.cdpService.getWsEndpoint()!,
+              await scopedCdpEndpoint(context.cdpService, params.pageId),
               fastify.control,
               credential,
             );

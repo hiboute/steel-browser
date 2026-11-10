@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { Browser, Page } from "puppeteer-core";
 
 export type Check = { name: string; status: "pass" | "fail" | "untested"; detail?: string };
@@ -137,7 +137,7 @@ export class IdentityCollector {
         const u = new URL("/observe", this.externalOrigin);
         if (!["https:", "http:"].includes(u.protocol) || u.username || u.password)
           throw new Error("Invalid collector origin");
-        u.searchParams.set("nonce", randomBytes(16).toString("hex"));
+        u.searchParams.set("nonce", randomUUID());
         page = await browser.newPage();
         await preparePage?.(page);
         await page.goto(u.href, { waitUntil: "load", timeout: 7000 });

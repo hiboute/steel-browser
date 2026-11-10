@@ -447,3 +447,30 @@ describe("session expiry", () => {
     await service.endSession(session.id);
   });
 });
+
+describe("checkpoint of a live session", () => {
+  it("returns the copy and leaves the browser parked when no slot is free to resume it", async () => {
+    const warn = vi.fn();
+    const service = Object.assign(Object.create(SessionService.prototype), {
+      checkpointLocks: new Map(),
+      starts: new Map(),
+      endings: new Map(),
+      transitioning: new Set(),
+      parked: new Map(),
+      snapshots: new Map(),
+      closing: false,
+      logger: { warn },
+      getSession: () => ({ id: "s", status: "live" }),
+      parkGuard: () => false,
+      parkLiveSession: vi.fn(async function (this: any) {
+        this.parked.set("s", {});
+        this.snapshots.set("s", { details: { id: "s" }, profile: "/tmp/p", options: {} });
+      }),
+      resumeSession: vi.fn().mockRejectedValue(new Error("No browser slot available")),
+    }) as any;
+    await expect(service.withCheckpoint("s", async () => "copied")).resolves.toBe("copied");
+    expect(service.resumeSession).toHaveBeenCalledWith("s", { queueTimeout: 20_000 });
+    expect(warn).toHaveBeenCalledOnce();
+    expect(service.checkpointLocks.size).toBe(0);
+  });
+});

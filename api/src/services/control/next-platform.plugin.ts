@@ -75,7 +75,18 @@ const plugin: FastifyPluginAsync = async (server) => {
   await budgets.initialize();
   for (const session of server.sessionService.listSessions(true))
     if (session.ownerId) await control.registerResource(session.id, session.ownerId);
-  await control.registerResource(server.sessionService.activeSession.id, "local");
+  // The idle browser gets a new id each time the last session ends. Keep its
+  // ownership record in step, or nobody can take control of it afterwards.
+  let idleId: string | undefined;
+  const registerIdle = async (boot = false) => {
+    const idle = server.sessionService.activeSession;
+    if (!idle?.id || idle.id === idleId || (!boot && idle.status !== "idle")) return;
+    const previous = idleId;
+    idleId = idle.id;
+    await control.registerResource(idle.id, "local");
+    if (previous) await control.forget(previous);
+  };
+  await registerIdle(true);
   server.browserPool.setSchedulingPolicy(budgets);
   server.addHook("onRequest", (request, reply, done) => {
     const path = request.url.split("?", 1)[0];
@@ -290,9 +301,11 @@ const plugin: FastifyPluginAsync = async (server) => {
     },
     onEnded: async (session) => {
       budgets.release(session.id);
+      await registerIdle();
     },
     onParked: async (session) => {
       budgets.release(session.id);
+      await registerIdle();
     },
   });
   const unsubscribeEvents = server.events.subscribe((event) => {

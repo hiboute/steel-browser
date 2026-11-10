@@ -162,7 +162,15 @@ export default async function routes(server: FastifyInstance) {
   route("POST", "/checkpoints/:id/branch", "branch_browser_checkpoint", (req) =>
     server.checkpoints.branch(
       sid(req),
-      z.object({ name: z.string().max(128).optional() }).parse(req.body ?? {}),
+      z
+        .object({
+          name: z.string().max(128).optional(),
+          labels: z
+            .record(z.string().max(128), z.string().max(1024))
+            .refine((value) => Object.keys(value).length <= 19, "At most 19 labels")
+            .optional(),
+        })
+        .parse(req.body ?? {}),
       server.access.actor(req),
     ),
   );

@@ -64,6 +64,16 @@ describe("immutable browser checkpoints", () => {
     );
     expect(await service.list({ ...actor, id: "stranger" })).toEqual([]);
   });
+  it("gives a branch its own labels instead of the source's", async () => {
+    snapshot.details.labels = { "mcp.session": "work", "mcp.owner": "someone" };
+    snapshot.options.labels = { "mcp.session": "work" };
+    const saved = await service.create("source", { name: "labelled" }, actor);
+    await service.branch(saved.id, {}, actor);
+    await service.branch(saved.id, { labels: { "mcp.session": "copy" } }, actor);
+    expect(imports[0].details.labels).toEqual({ checkpoint: saved.id });
+    expect(imports[0].options.labels).toEqual({ checkpoint: saved.id });
+    expect(imports[1].details.labels).toEqual({ "mcp.session": "copy", checkpoint: saved.id });
+  });
   it("detects tampering and missing files across service restart", async () => {
     const saved = await service.create("source", { name: "consistent" }, actor);
     const restarted = new CheckpointService(

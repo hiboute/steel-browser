@@ -1504,7 +1504,14 @@ export class SessionService {
       this.transitioning.delete(id);
       this.checkpointLocks.delete(id);
       barrier.resolve();
-      if (wasLive && this.parked.has(id) && !this.closing) await this.resumeSession(id);
+      // The copy is already made (or has failed with its own error). Another
+      // caller may have taken the slot this browser just gave up, so wait for
+      // one briefly, and never let a failed resume replace the outcome: the
+      // browser stays parked and can be resumed like any other.
+      if (wasLive && this.parked.has(id) && !this.closing)
+        await this.resumeSession(id, { queueTimeout: 20_000 }).catch((err) =>
+          this.logger.warn({ err, sessionId: id }, "Session left parked after its checkpoint"),
+        );
     }
   }
 

@@ -135,7 +135,11 @@ export class CheckpointService {
   async get(id: string, actor: Actor) {
     return (await this.saved(id, actor)).details;
   }
-  async branch(id: string, input: { name?: string }, actor: Actor) {
+  async branch(
+    id: string,
+    input: { name?: string; labels?: Record<string, string> },
+    actor: Actor,
+  ) {
     return this.serial(id, async () => {
       const saved = await this.saved(id, actor);
       if (saved.details.expiresAt && Date.parse(saved.details.expiresAt) <= Date.now())
@@ -157,6 +161,10 @@ export class CheckpointService {
         ...snapshot.details,
         id: sessionId,
         name: input.name ?? saved.details.name,
+        // A copy is a browser of its own. Labels say what the source was for
+        // (a client's session name, background work); inheriting them makes two
+        // browsers answer to one name.
+        labels: { ...(input.labels ?? {}), checkpoint: id },
         ownerId: actor.id,
         status: "parked",
         createdAt: new Date().toISOString(),
@@ -172,6 +180,7 @@ export class CheckpointService {
         persist: false,
         _principal: actor,
         name: snapshot.details.name,
+        labels: snapshot.details.labels,
         signal: undefined,
       };
       try {

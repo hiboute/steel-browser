@@ -252,10 +252,16 @@ export class OwnershipService {
       throw new AccessError("stale_controller", "Control has transferred", 409);
   }
   async expire() {
-    for (const id of this.resources.keys())
+    const now = Date.now();
+    // This runs four times a second over every browser the service has ever
+    // owned, so only queue work for a lease that has actually run out.
+    const lapsed = [...this.resources].filter(
+      ([, r]) => r.lease && Date.parse(r.lease.expiresAt) <= now,
+    );
+    for (const [id] of lapsed)
       await this.serial(id, async () => {
-        const r = this.resources.get(id)!;
-        if (!r.lease || Date.parse(r.lease.expiresAt) > Date.now()) return;
+        const r = this.resources.get(id);
+        if (!r?.lease || Date.parse(r.lease.expiresAt) > Date.now()) return;
         r.generation++;
         delete r.lease;
         delete r.digest;
@@ -269,6 +275,13 @@ export class OwnershipService {
       this.resources.set(id, { ownerId, generation: (previous?.generation ?? 0) + 1 });
       await this.save();
       await this.changed(id, null);
+    });
+  }
+  /** Drops a record nobody can address any more (the previous idle browser). */
+  async forget(id: string) {
+    return this.serial(id, async () => {
+      if (!this.resources.delete(id)) return;
+      await this.save();
     });
   }
   async close() {

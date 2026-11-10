@@ -106,6 +106,8 @@ export class FrictionService {
       handoffs: HandoffService;
       publish: (type: string, data: unknown, id: string) => void;
       log: (e: unknown) => void;
+      /** Told once per new finding, with the site it happened on. */
+      onFinding?: (origin: string, kind: FrictionFinding["kind"]) => void;
     },
   ) {
     this.timer = setInterval(() => {
@@ -282,6 +284,7 @@ export class FrictionService {
         );
         record.handoffId = handoff.id;
         this.d.publish("friction.detected", { ...finding, pause: true, handoffId: handoff.id }, id);
+        this.d.onFinding?.(origin, finding.kind);
       }
       await this.d.store.write(`identity/friction/${id}.json`, record);
       if (previous.status !== record.status) this.d.publish("friction.changed", record, id);

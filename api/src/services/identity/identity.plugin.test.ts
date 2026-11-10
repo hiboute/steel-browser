@@ -22,6 +22,7 @@ beforeEach(async () => {
           getLaunchOptions: () => undefined,
           hooks: { add: () => () => {} },
         });
+        server.decorate("jobs", { run: async () => undefined });
         server.decorate("egress", {
           checkResolved: async () => ({ healthy: true, publicIp: "203.0.113.1", country: "FR" }),
           resolve: async () => ({}),
@@ -151,4 +152,34 @@ it("does not expose raw IP or upstream in continuity preview and rejects travers
       })
     ).statusCode,
   ).toBe(400);
+});
+it("serves the stealth scorecard history and lets only an operator start a run", async () => {
+  const list = await app.inject({ method: "GET", url: "/v1/identity/scorecards" });
+  expect(list.statusCode).toBe(200);
+  expect(list.json()).toEqual({ configured: "legacy", defaultMode: "legacy", scorecards: [] });
+  expect((await app.inject({ method: "POST", url: "/v1/identity/scorecard/run" })).statusCode).toBe(
+    403,
+  );
+  const run = await app.inject({ method: "POST", url: "/v1/identity/scorecard/run", headers });
+  expect(run.statusCode).toBe(200);
+  // No free browser: every mode is skipped and nothing is stored as evidence.
+  expect(run.json().modes.map((m: any) => m.status)).toEqual(["skipped", "skipped", "skipped"]);
+  expect(
+    (await app.inject({ method: "GET", url: "/v1/identity/scorecards" })).json().scorecards,
+  ).toEqual([]);
+  expect(typeof (app as any).sessionService.fingerprintRefresher).toBe("function");
+});
+it("lists hard sites, advises on a URL and lets only an operator forget one", async () => {
+  await (app as any).hardSites.record("https://shop.example", "captcha");
+  await (app as any).hardSites.record("https://shop.example", "captcha");
+  const list = await app.inject({ method: "GET", url: "/v1/hard-sites" });
+  expect(list.json().sites).toMatchObject([{ origin: "https://shop.example", hard: true }]);
+  const advice = await app.inject({
+    method: "GET",
+    url: "/v1/hard-sites/advice?url=https%3A%2F%2Fshop.example%2Fcart",
+  });
+  expect(advice.json()).toMatchObject({ hard: true, hits: 2 });
+  const url = "/v1/hard-sites?origin=https%3A%2F%2Fshop.example";
+  expect((await app.inject({ method: "DELETE", url })).statusCode).toBe(403);
+  expect((await app.inject({ method: "DELETE", url, headers })).json()).toEqual({ removed: true });
 });

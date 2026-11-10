@@ -209,6 +209,13 @@ export class SessionService {
   private fileService: FileService;
   private timezoneFetcher: TimezoneFetcher;
   public proxyFactory: ProxyFactory = (proxyUrl) => new ProxyServer(proxyUrl);
+  /**
+   * Brings a saved browser's pinned fingerprint up to the running Chrome
+   * version. Returns the updated fingerprint, or undefined when it is current.
+   */
+  public fingerprintRefresher?: (
+    fingerprint: BrowserFingerprintWithHeaders,
+  ) => Promise<BrowserFingerprintWithHeaders | undefined>;
 
   public pastSessions: Session[] = [];
   /** Live sessions by id, in start order. */
@@ -684,6 +691,21 @@ export class SessionService {
           fingerprint = await readFile(path.join(userDataDir, PROFILE_FINGERPRINT_FILE), "utf8")
             .then((raw) => JSON.parse(raw) as BrowserFingerprintWithHeaders)
             .catch(() => undefined);
+          // A pinned fingerprint keeps the Chrome version of the day it was
+          // made; after an image upgrade that contradicts the real browser.
+          const refreshed = fingerprint
+            ? await this.fingerprintRefresher?.(fingerprint).catch(() => undefined)
+            : undefined;
+          if (refreshed) {
+            fingerprint = refreshed;
+            await writeFile(
+              path.join(userDataDir, PROFILE_FINGERPRINT_FILE),
+              JSON.stringify(refreshed),
+              { mode: 0o600 },
+            ).catch((err) =>
+              this.logger.warn({ err }, "[SessionService] Could not update a pinned fingerprint"),
+            );
+          }
         }
       }
 

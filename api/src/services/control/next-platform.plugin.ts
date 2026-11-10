@@ -11,6 +11,8 @@ import { SessionCommands } from "../commands/registry.js";
 import { RunService } from "../runs/runs.service.js";
 import { CheckpointService } from "../checkpoints/checkpoints.service.js";
 import { DoctorService } from "../doctor/doctor.service.js";
+import { StorageService } from "../storage/storage.service.js";
+import { requestJsonSchema, COMMANDS_API_VERSION } from "../commands/commands.js";
 import devtoolsRoutes from "../../modules/next-platform/devtools.routes.js";
 import nextRoutes from "../../modules/next-platform/next-platform.routes.js";
 
@@ -26,6 +28,7 @@ declare module "fastify" {
     runs: RunService;
     checkpoints: CheckpointService;
     doctor: DoctorService;
+    storage: StorageService;
   }
 }
 const plugin: FastifyPluginAsync = async (server) => {
@@ -70,6 +73,38 @@ const plugin: FastifyPluginAsync = async (server) => {
   server.decorate("runs", runs);
   server.decorate("checkpoints", checkpoints);
   server.decorate("doctor", doctor);
+  const liveIds = () =>
+    new Set([
+      ...server.sessionService.listSessions(true).map((session) => session.id),
+      server.sessionService.activeSession?.id,
+    ]) as Set<string>;
+  const storage: StorageService = new StorageService({
+    store: server.store,
+    activeIds: liveIds,
+    external: {
+      "browser-profiles": {
+        label: "Saved browsers",
+        path: browserProfilesDir(),
+        retention: "Kept until deleted",
+      },
+      "cookie-library": {
+        label: "Cookie library",
+        path: process.env.COOKIE_LIBRARY_DIR || path.join(process.cwd(), "cookie-library"),
+        retention: "Kept until deleted",
+      },
+      ...(process.env.LOG_STORAGE_PATH
+        ? {
+            logs: {
+              label: "Browser logs",
+              path: process.env.LOG_STORAGE_PATH,
+              retention: "Kept until deleted",
+            },
+          }
+        : {}),
+    },
+    sweeps: { control: () => control.prune(liveIds(), storage.controlDays) },
+  });
+  server.decorate("storage", storage);
   server.decorateRequest("steelPrincipal");
   await control.initialize();
   await budgets.initialize();
@@ -319,18 +354,18 @@ const plugin: FastifyPluginAsync = async (server) => {
     250,
   );
   expiry.unref();
-  const sweep = setInterval(
-    () =>
-      void checkpoints
-        .sweep()
-        .catch((err) => server.log.error({ err }, "Checkpoint retention failed")),
-    3600000,
-  );
+  const sweep = setInterval(() => {
+    void checkpoints
+      .sweep()
+      .catch((err) => server.log.error({ err }, "Checkpoint retention failed"));
+    void storage.prune().catch((err) => server.log.error({ err }, "Storage pruning failed"));
+  }, 3600000);
   sweep.unref();
   // Kind providers register before onReady; restart recovery can then classify custom steps correctly.
   server.addHook("onReady", async () => {
     await runs.initialize(false);
     await checkpoints.sweep();
+    await storage.prune().catch((err) => server.log.error({ err }, "Storage pruning failed"));
   });
   server.addHook("preClose", async () => {
     clearInterval(sweep);
@@ -342,6 +377,16 @@ const plugin: FastifyPluginAsync = async (server) => {
     unsubscribe();
     unsubscribeEvents();
   });
+  // The schema is the same for every browser; clients should not need one open to read it.
+  const commandsSchema = requestJsonSchema();
+  server.get(
+    "/v1/commands/schema",
+    {
+      schema: { operationId: "get_commands_schema_static", tags: ["Commands"] },
+      serializerCompiler: () => (data) => JSON.stringify(data),
+    },
+    async () => ({ version: COMMANDS_API_VERSION, schema: commandsSchema }),
+  );
   await server.register(nextRoutes, { prefix: "/v1" });
   await server.register(devtoolsRoutes, { prefix: "/v1" });
 };

@@ -171,3 +171,17 @@ it("moves the idle browser's ownership record when the idle browser is replaced"
   expect(app.control.readers("busy")).toEqual([]);
   expect(app.control.readers("next-idle")).toEqual(["local"]);
 });
+
+it("serves storage usage and the commands schema without a browser, and keeps pruning for operators", async () => {
+  const app = await setup();
+  const usage = await app.inject({ url: "/v1/storage", headers: auth });
+  expect(usage.statusCode, usage.body).toBe(200);
+  expect(usage.json()).toMatchObject({ kinds: expect.any(Array), totalBytes: expect.any(Number) });
+  expect(
+    (await app.inject({ method: "POST", url: "/v1/storage/prune", headers: auth })).statusCode,
+  ).toBe(403);
+  const schema = await app.inject({ url: "/v1/commands/schema", headers: auth });
+  expect(schema.statusCode, schema.body).toBe(200);
+  expect(schema.json().schema.definitions.Command).toBeDefined();
+  expect((await app.inject({ url: "/v1/storage" })).statusCode).toBe(401);
+});

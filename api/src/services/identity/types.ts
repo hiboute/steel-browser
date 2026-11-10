@@ -132,8 +132,11 @@ export class IdentityError extends Error {
   }
 }
 export function major(version?: string): number | undefined {
-  const m = version?.match(/(?:Chrome|Chromium|HeadlessChrome)[/ ](\d+)|^(\d+)\./);
-  return m ? Number(m[1] ?? m[2]) : undefined;
+  // The last form covers builds that name themselves differently ("Chrome for Testing 153.0.1.2").
+  const m = version?.match(
+    /(?:Chrome|Chromium|HeadlessChrome)[/ ](\d+)|^(\d+)\.|\b(\d+)\.\d+\.\d+\.\d+\b/,
+  );
+  return m ? Number(m[1] ?? m[2] ?? m[3]) : undefined;
 }
 export function now() {
   return new Date().toISOString();

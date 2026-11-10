@@ -3,6 +3,8 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastif
 import { z } from "zod";
 import { IdentityService, type LabReport } from "./identity.service.js";
 import { FrictionService } from "./friction.service.js";
+import { ScorecardService } from "./scorecard.js";
+import { HardSites } from "./hard-sites.js";
 import { IdentityError, Name, ProfileInput, SiteInput, Mode } from "./types.js";
 import { mobileProfiles } from "./mobile.js";
 import type { StartSessionOptions } from "../session.service.js";
@@ -11,6 +13,8 @@ declare module "fastify" {
   interface FastifyInstance {
     identity: IdentityService;
     friction: FrictionService;
+    scorecard: ScorecardService;
+    hardSites: HardSites;
   }
 }
 /** Public reports omit raw IPs, upstream credentials, page text and cookie/fingerprint header bundles. */
@@ -41,7 +45,10 @@ const plugin: FastifyPluginAsync = async (server) => {
     if (!s) throw new IdentityError("session_not_found", "Session not found", 404);
     return s;
   };
+  // eslint-disable-next-line prefer-const
+  let scorecard: ScorecardService;
   const identity = new IdentityService({
+    defaultMode: () => scorecard.defaultMode(),
     store: server.store,
     getSession,
     getOptions: (id) => server.sessionService.getLaunchOptions(id),
@@ -55,15 +62,70 @@ const plugin: FastifyPluginAsync = async (server) => {
     },
     publish: (type, data, id) => server.events.publish(type, data, id),
   });
+  const hardSites = new HardSites({
+    store: server.store,
+    workers: () => (server as any).fleet?.listWorkers() ?? [],
+  });
   const friction = new FrictionService({
+    onFinding: (origin, kind) =>
+      void hardSites
+        .record(origin, kind)
+        .catch((e) => server.log.warn({ err: e }, "Hard site record failed")),
     store: server.store,
     getSession,
     handoffs: server.handoffs,
     publish: (type, data, id) => server.events.publish(type, data, id),
     log: (e) => server.log.warn({ err: e }, "Friction observer failed"),
   });
+  scorecard = new ScorecardService({
+    store: server.store,
+    measure: (sessionOptions, fn) =>
+      server.jobs.run(
+        "stealth-scorecard",
+        {
+          timeoutMs: 180_000,
+          sessionOptions: { credentials: {}, ...sessionOptions },
+        },
+        fn,
+      ),
+    inspect: (id) => identity.inspect(id),
+    lab: (id) => identity.lab(id),
+    publish: (type, data) => server.events.publish(type, data),
+    configured: process.env.STEEL_DEFAULT_COMPATIBILITY_MODE,
+  });
   server.decorate("identity", identity);
   server.decorate("friction", friction);
+  server.decorate("scorecard", scorecard);
+  server.decorate("hardSites", hardSites);
+  server.sessionService.fingerprintRefresher = (fingerprint) => identity.refreshPinned(fingerprint);
+  const measureIfDue = (trigger: "nightly" | "boot") =>
+    scorecard
+      .due()
+      .then((due) => (due ? scorecard.run(trigger) : undefined))
+      .catch((e) => server.log.warn({ err: e }, "Stealth scorecard run failed"));
+  const nightly = setInterval(() => void measureIfDue("nightly"), 30 * 60_000);
+  nightly.unref();
+  let first: NodeJS.Timeout | undefined;
+  server.addHook("onReady", async () => {
+    if (process.env.STEEL_IDENTITY_AUTO_MIGRATE !== "false")
+      void identity
+        .migrateStale()
+        .then((r) => {
+          if (r.migrated.length)
+            server.log.info(r, "Saved identities moved to the running Chrome version");
+        })
+        .catch((e) => server.log.warn({ err: e }, "Identity upkeep failed"));
+    // The first card of an install should not wait for the night.
+    first = setTimeout(
+      () =>
+        void scorecard
+          .latest()
+          .then((card) => (card ? undefined : scorecard.run("boot")))
+          .catch((e) => server.log.warn({ err: e }, "Stealth scorecard run failed")),
+      90_000,
+    );
+    first.unref();
+  });
   const unhook = server.sessionService.hooks.add({
     onStarting: (options) => identity.prepare(options),
     onStarted: async (session) => {
@@ -92,6 +154,9 @@ const plugin: FastifyPluginAsync = async (server) => {
         .catch((e) => server.log.warn({ err: e }, "Friction resolution failed"));
   });
   server.addHook("onClose", async () => {
+    clearInterval(nightly);
+    clearTimeout(first);
+    server.sessionService.fingerprintRefresher = undefined;
     unhook();
     unsubscribe();
     await friction.close();
@@ -316,6 +381,44 @@ const plugin: FastifyPluginAsync = async (server) => {
         const report = await identity.labReport(r.params.id);
         await authorize(server, r, report.sessionId);
         return report;
+      });
+      route("GET", "/hard-sites", "list_hard_sites", async (r) => {
+        (server as any).access?.actor(r);
+        return { sites: await hardSites.list() };
+      });
+      route("GET", "/hard-sites/advice", "get_hard_site_advice", async (r) => {
+        (server as any).access?.actor(r);
+        return hardSites.advice(
+          z
+            .string()
+            .max(2048)
+            .parse(r.query?.url),
+        );
+      });
+      route("DELETE", "/hard-sites", "forget_hard_site", async (r) => {
+        await authorize(server, r);
+        return {
+          removed: await hardSites.forget(
+            z
+              .string()
+              .max(300)
+              .parse(r.query?.origin),
+          ),
+        };
+      });
+      route("GET", "/identity/scorecards", "list_stealth_scorecards", async (r) => {
+        // Scores and mode names only: readable by any caller the access layer accepts.
+        (server as any).access?.actor(r);
+        const limit = Math.min(Math.max(Number(r.query?.limit) || 14, 1), 90);
+        return {
+          configured: (process.env.STEEL_DEFAULT_COMPATIBILITY_MODE ?? "legacy").toLowerCase(),
+          defaultMode: (await scorecard.defaultMode()) ?? "legacy",
+          scorecards: await scorecard.history(limit),
+        };
+      });
+      route("POST", "/identity/scorecard/run", "run_stealth_scorecard", async (r) => {
+        await authorize(server, r);
+        return scorecard.run("manual");
       });
       route(
         "POST",

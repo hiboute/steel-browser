@@ -1085,7 +1085,8 @@ export class CDPService extends EventEmitter {
 
         const dynamicArgs = [
           this.launchConfig.dimensions ? "" : "--start-maximized",
-          `--remote-debugging-address=${env.HOST}`,
+          // External clients must use the authenticated, lease-fenced API broker.
+          "--remote-debugging-address=127.0.0.1",
           `--remote-debugging-port=${this.cdpPort}`,
           `--window-size=${this.launchConfig.dimensions?.width ?? 1920},${
             this.launchConfig.dimensions?.height ?? 1080

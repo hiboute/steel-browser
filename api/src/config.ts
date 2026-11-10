@@ -6,8 +6,27 @@ interface LoggingConfig {
   [key: string]: FastifyServerOptions["logger"];
 }
 
+const credentialRedaction = {
+  paths: [
+    "req.headers.authorization",
+    "req.headers.cookie",
+    'req.headers["x-steel-control"]',
+    'req.headers["x-steel-proxy-secret"]',
+    'req.headers["x-steel-webhook-token"]',
+    "headers.authorization",
+    'headers["X-Steel-Control"]',
+    'headers["X-Steel-Proxy-Secret"]',
+    "token",
+    "controlToken",
+    "pairingToken",
+    "passphrase",
+  ],
+  censor: "[redacted]",
+};
+
 export const loggingConfig: LoggingConfig = {
   development: {
+    redact: credentialRedaction,
     transport: {
       target: "pino-pretty",
       options: {
@@ -43,6 +62,6 @@ export const loggingConfig: LoggingConfig = {
       : {}),
     level: process.env.LOG_LEVEL || "debug",
   },
-  production: {},
+  production: { redact: credentialRedaction },
   test: false,
 };

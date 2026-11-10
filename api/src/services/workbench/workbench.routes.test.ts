@@ -43,7 +43,7 @@ beforeEach(async () => {
       role: "agent",
       authenticated: true,
     }),
-  });
+  } as unknown as typeof app.access);
   await app.register(routes, { prefix: "/v1" });
   await app.ready();
 });

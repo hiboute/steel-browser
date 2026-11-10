@@ -59,8 +59,16 @@ describe("fleet durable coordination", () => {
     const branch = await fleet.createSession({ ownerId: "alice", engine: "chromium", checkpointId }); expect(branch.session.id).not.toBe(s.id); expect(branch.command.payload.checkpoint).toMatchObject({ tabs: [{ url: "https://example.org" }] });
   });
   it("marks hung commands uncertain and never falls back to another worker", async () => {
-    const { fleet, advance } = await setup(); const w = await worker(fleet); const s = await live(fleet, w); const c = await fleet.command(s.id, "goto", { url: "https://example.org" }, "go"); await fleet.poll(w.workerId, w.token, [s.id]); advance(120_001); await fleet.poll(w.workerId, w.token, [s.id]); expect(fleet.getCommand(s.id, c.id).state).toBe("uncertain");
+    const { fleet, advance } = await setup(); const w = await worker(fleet); const s = await live(fleet, w); const c = await fleet.command(s.id, "goto", { url: "https://example.org" }, "go"); await fleet.poll(w.workerId, w.token, [s.id]); const next = await fleet.command(s.id, "goto", { url: "https://example.org/second" }, "second"); advance(120_001); const poll = await fleet.poll(w.workerId, w.token, [s.id]); expect(fleet.getCommand(s.id, c.id).state).toBe("uncertain");
+    expect(poll.fencedSessionIds).toEqual([s.id]); expect(poll.commands).toHaveLength(0); expect(fleet.getCommand(s.id, next.id)).toMatchObject({ state: "failed", error: "session_uncertain" });
     advance(45_001); await expect(fleet.command(s.id, "close", {}, "close")).rejects.toMatchObject({ code: "worker_unavailable" });
+  });
+  it("keeps retried completed closes closed and frees capacity after explicit reconciliation", async () => {
+    const { fleet, store } = await setup(); const w = await worker(fleet); const s = await live(fleet, w);
+    const close = await fleet.command(s.id, "close", {}, "close"); await fleet.poll(w.workerId, w.token, [s.id]); await fleet.complete(w.workerId, w.token, close.id, w.generation, { result: { closed: true } });
+    await fleet.command(s.id, "close", {}, "close"); expect(fleet.getSession(s.id).state).toBe("closed");
+    const second = await live(fleet, w); const pending = await fleet.command(second.id, "close", {}, "close"); await fleet.poll(w.workerId, w.token, [second.id]);
+    const restarted = new FleetService(store); await restarted.initialize(); await restarted.reconcile(second.id, pending.id, "applied", { closed: true }); expect(restarted.getSession(second.id).state).toBe("closed"); expect(restarted.listWorkers()[0].activeSessions).toBe(0);
   });
   it("fences queued and in-flight commands when human control changes", async () => {
     const { store } = await setup(); let generation = 1; const fleet = new FleetService(store, Date.now, 45_000, (_id, current) => current === generation); await fleet.initialize(); const w = await worker(fleet); const s = await live(fleet, w);

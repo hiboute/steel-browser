@@ -88,7 +88,7 @@ export class FleetService {
       const session = this.state.sessions.find(s => s.id === id); if (!session) throw new FleetError("fleet_session_not_found", "Fleet session not found", 404);
       const prior = this.state.commands.find(c => c.sessionId === id && c.idempotencyKey === idempotencyKey);
       if (!prior && session.state !== "live" && kind !== "close") throw new FleetError("session_not_ready", "Session must be live before commands can execute");
-      const command = this.enqueue(session, kind, payload, idempotencyKey, controlGeneration); if (kind === "close") session.state = "closing";
+      const command = this.enqueue(session, kind, payload, idempotencyKey, controlGeneration); if (kind === "close" && ["queued", "running"].includes(command.state)) session.state = "closing";
       await this.save(); return structuredClone(command);
     });
   }
@@ -109,11 +109,13 @@ export class FleetService {
         if (session.state === "uncertain" && liveSessionIds.includes(session.id) && !this.state.commands.some(c => c.sessionId === session.id && c.state === "uncertain")) session.state = "live";
         if (session.state === "live" && !liveSessionIds.includes(session.id)) { session.state = "uncertain"; session.lastError = "worker_lost_browser"; }
       }
-      for (const command of this.state.commands.filter(c => c.workerId === id && c.state === "running" && (c.claimedAt ?? 0) + 120_000 < this.now())) { command.state = "uncertain"; command.error = "worker_command_timed_out"; const s = this.state.sessions.find(s => s.id === command.sessionId); if (s) s.state = "uncertain"; }
+      for (const command of this.state.commands.filter(c => c.workerId === id && c.state === "running" && (c.claimedAt ?? 0) + 120_000 < this.now())) { command.state = "uncertain"; command.error = "worker_command_timed_out"; fencedSessions.add(command.sessionId); const s = this.state.sessions.find(s => s.id === command.sessionId); if (s) s.state = "uncertain"; }
       const running = new Set(this.state.commands.filter(c => c.workerId === id && c.state === "running").map(c => c.sessionId));
       const commands: FleetCommand[] = [];
       for (const command of this.state.commands.filter(c => c.workerId === id && c.state === "queued" && c.generation === worker.generation)) {
         if (running.has(command.sessionId)) continue;
+        const session = this.state.sessions.find(s => s.id === command.sessionId)!;
+        if (command.kind !== "close" && ["uncertain", "closed"].includes(session.state)) { command.state = "failed"; command.error = "session_uncertain"; continue; }
         command.state = "running"; command.claimedAt = this.now(); running.add(command.sessionId); commands.push(structuredClone(command));
       }
       await this.save(); return { generation: worker.generation, revoked: false, commands, fencedSessionIds: [...fencedSessions] };
@@ -145,6 +147,7 @@ export class FleetService {
       const command = this.state.commands.find(c => c.sessionId === sessionId && c.id === commandId && c.state === "uncertain");
       if (!command) throw new FleetError("not_uncertain", "Command is not awaiting reconciliation");
       command.state = decision === "applied" ? "completed" : "failed"; command.result = result; command.error = decision === "not_applied" ? "operator_confirmed_not_applied" : undefined;
+      if (command.kind === "close" && decision === "applied") this.state.sessions.find(s => s.id === sessionId)!.state = "closed";
       await this.save(); return structuredClone(command);
     });
   }

@@ -336,6 +336,9 @@ export function InboxPage() {
             {item.kind === "receipt" && (
               <JsonDetails value={item.details} label="Outcome checks and evidence" />
             )}
+            {item.kind === "run" && (
+              <JsonDetails value={item.details} label="Task progress and last result" />
+            )}
             <div className="button-row">
               {item.actions.includes("open") && item.sessionId && (
                 <a className="pill-button" href={`?session=${item.sessionId}`}>

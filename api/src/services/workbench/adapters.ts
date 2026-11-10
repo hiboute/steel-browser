@@ -105,6 +105,33 @@ const reviewSource = (review: RecordValue): WorkSource => ({
   },
 });
 
+export function visibleWorkSources(
+  handoffs: WorkSource[],
+  reviews: WorkSource[],
+  receipts: WorkSource[],
+  runs: WorkSource[],
+): WorkSource[] {
+  // A waiting/failed receipt must not hide the task's actionable recovery card.
+  const terminalReceipts = receipts.filter((receipt) => {
+    const run = runs.find((run) => run.id === receipt.runId);
+    return !run || ["completed", "cancelled"].includes(run.status);
+  });
+  const represented = new Set(
+    [
+      ...terminalReceipts,
+      ...reviews.filter((review) => ["pending", "waiting"].includes(review.status)),
+    ]
+      .map((item) => item.runId)
+      .filter(Boolean),
+  );
+  return [
+    ...handoffs,
+    ...reviews,
+    ...terminalReceipts,
+    ...runs.filter((run) => !represented.has(run.id)),
+  ];
+}
+
 export function defaultWorkbenchAdapters(server: FastifyInstance): WorkbenchAdapters {
   const authorize = async (id: string, actor: WorkbenchActor, token?: string, write = false) => {
     const access = accessOf(server);
@@ -163,12 +190,7 @@ export function defaultWorkbenchAdapters(server: FastifyInstance): WorkbenchAdap
     }
     // A receipt replaces its run's terminal summary; a pending review supplies
     // the actionable card instead of a second generic paused-task card.
-    const represented = new Set(
-      [...receipts, ...reviews.filter((r) => ["pending", "waiting"].includes(r.status))]
-        .map((r) => r.runId)
-        .filter(Boolean),
-    );
-    return [...handoffs, ...reviews, ...receipts, ...runs.filter((r) => !represented.has(r.id))];
+    return visibleWorkSources(handoffs, reviews, receipts, runs);
   };
   return {
     authorize,

@@ -198,6 +198,9 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
   if (enableLogsRoutes) {
     await fastify.register(logsRoutes, { prefix: "/v1/logs" });
   }
+  // Recovery can execute procedure hooks only after every feature has loaded
+  // its persisted state and installed privacy, review and indexing policies.
+  fastify.addHook("onReady", async () => fastify.runs.startRecovered());
 };
 
 export default fp<SteelBrowserConfig>(steelBrowserPlugin, {

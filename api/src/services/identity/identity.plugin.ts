@@ -4,6 +4,7 @@ import { z } from "zod";
 import { IdentityService, type LabReport } from "./identity.service.js";
 import { FrictionService } from "./friction.service.js";
 import { ScorecardService } from "./scorecard.js";
+import { HardSites } from "./hard-sites.js";
 import { IdentityError, Name, ProfileInput, SiteInput, Mode } from "./types.js";
 import { mobileProfiles } from "./mobile.js";
 import type { StartSessionOptions } from "../session.service.js";
@@ -13,6 +14,7 @@ declare module "fastify" {
     identity: IdentityService;
     friction: FrictionService;
     scorecard: ScorecardService;
+    hardSites: HardSites;
   }
 }
 /** Public reports omit raw IPs, upstream credentials, page text and cookie/fingerprint header bundles. */
@@ -60,7 +62,15 @@ const plugin: FastifyPluginAsync = async (server) => {
     },
     publish: (type, data, id) => server.events.publish(type, data, id),
   });
+  const hardSites = new HardSites({
+    store: server.store,
+    workers: () => (server as any).fleet?.listWorkers() ?? [],
+  });
   const friction = new FrictionService({
+    onFinding: (origin, kind) =>
+      void hardSites
+        .record(origin, kind)
+        .catch((e) => server.log.warn({ err: e }, "Hard site record failed")),
     store: server.store,
     getSession,
     handoffs: server.handoffs,
@@ -86,6 +96,7 @@ const plugin: FastifyPluginAsync = async (server) => {
   server.decorate("identity", identity);
   server.decorate("friction", friction);
   server.decorate("scorecard", scorecard);
+  server.decorate("hardSites", hardSites);
   server.sessionService.fingerprintRefresher = (fingerprint) => identity.refreshPinned(fingerprint);
   const measureIfDue = (trigger: "nightly" | "boot") =>
     scorecard
@@ -370,6 +381,30 @@ const plugin: FastifyPluginAsync = async (server) => {
         const report = await identity.labReport(r.params.id);
         await authorize(server, r, report.sessionId);
         return report;
+      });
+      route("GET", "/hard-sites", "list_hard_sites", async (r) => {
+        (server as any).access?.actor(r);
+        return { sites: await hardSites.list() };
+      });
+      route("GET", "/hard-sites/advice", "get_hard_site_advice", async (r) => {
+        (server as any).access?.actor(r);
+        return hardSites.advice(
+          z
+            .string()
+            .max(2048)
+            .parse(r.query?.url),
+        );
+      });
+      route("DELETE", "/hard-sites", "forget_hard_site", async (r) => {
+        await authorize(server, r);
+        return {
+          removed: await hardSites.forget(
+            z
+              .string()
+              .max(300)
+              .parse(r.query?.origin),
+          ),
+        };
       });
       route("GET", "/identity/scorecards", "list_stealth_scorecards", async (r) => {
         // Scores and mode names only: readable by any caller the access layer accepts.

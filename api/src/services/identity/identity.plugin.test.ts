@@ -169,3 +169,17 @@ it("serves the stealth scorecard history and lets only an operator start a run",
   ).toEqual([]);
   expect(typeof (app as any).sessionService.fingerprintRefresher).toBe("function");
 });
+it("lists hard sites, advises on a URL and lets only an operator forget one", async () => {
+  await (app as any).hardSites.record("https://shop.example", "captcha");
+  await (app as any).hardSites.record("https://shop.example", "captcha");
+  const list = await app.inject({ method: "GET", url: "/v1/hard-sites" });
+  expect(list.json().sites).toMatchObject([{ origin: "https://shop.example", hard: true }]);
+  const advice = await app.inject({
+    method: "GET",
+    url: "/v1/hard-sites/advice?url=https%3A%2F%2Fshop.example%2Fcart",
+  });
+  expect(advice.json()).toMatchObject({ hard: true, hits: 2 });
+  const url = "/v1/hard-sites?origin=https%3A%2F%2Fshop.example";
+  expect((await app.inject({ method: "DELETE", url })).statusCode).toBe(403);
+  expect((await app.inject({ method: "DELETE", url, headers })).json()).toEqual({ removed: true });
+});

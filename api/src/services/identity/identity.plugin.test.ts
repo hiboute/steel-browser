@@ -22,6 +22,7 @@ beforeEach(async () => {
           getLaunchOptions: () => undefined,
           hooks: { add: () => () => {} },
         });
+        server.decorate("jobs", { run: async () => undefined });
         server.decorate("egress", {
           checkResolved: async () => ({ healthy: true, publicIp: "203.0.113.1", country: "FR" }),
           resolve: async () => ({}),
@@ -151,4 +152,20 @@ it("does not expose raw IP or upstream in continuity preview and rejects travers
       })
     ).statusCode,
   ).toBe(400);
+});
+it("serves the stealth scorecard history and lets only an operator start a run", async () => {
+  const list = await app.inject({ method: "GET", url: "/v1/identity/scorecards" });
+  expect(list.statusCode).toBe(200);
+  expect(list.json()).toEqual({ configured: "legacy", defaultMode: "legacy", scorecards: [] });
+  expect((await app.inject({ method: "POST", url: "/v1/identity/scorecard/run" })).statusCode).toBe(
+    403,
+  );
+  const run = await app.inject({ method: "POST", url: "/v1/identity/scorecard/run", headers });
+  expect(run.statusCode).toBe(200);
+  // No free browser: every mode is skipped and nothing is stored as evidence.
+  expect(run.json().modes.map((m: any) => m.status)).toEqual(["skipped", "skipped", "skipped"]);
+  expect(
+    (await app.inject({ method: "GET", url: "/v1/identity/scorecards" })).json().scorecards,
+  ).toEqual([]);
+  expect(typeof (app as any).sessionService.fingerprintRefresher).toBe("function");
 });

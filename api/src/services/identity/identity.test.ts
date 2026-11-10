@@ -5,6 +5,7 @@ import path from "node:path";
 import { PlatformStore } from "../platform/store.js";
 import { IdentityService, contradictions } from "./identity.service.js";
 import { applyMobile } from "./mobile.js";
+import { major } from "./types.js";
 import { classifyFriction, retryAfter } from "./friction.service.js";
 import type { StartSessionOptions, Session } from "../session.service.js";
 
@@ -170,14 +171,18 @@ describe("versioned coherent identities", () => {
     expect(options.fingerprint).toEqual({ sentinel: true });
   });
   it("compares canonical timezone aliases without hiding explicit mismatches", () => {
-    expect(contradictions({ timezone: "Asia/Kolkata" }, { timezone: "Asia/Calcutta" }, "Chrome/149"))
-      .not.toEqual(expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]));
-    expect(contradictions({ timezone: "Etc/UTC" }, { timezone: "UTC" }, "Chrome/149"))
-      .not.toEqual(expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]));
-    expect(contradictions({ timezone: "Europe/Paris" }, { timezone: "UTC" }, "Chrome/149"))
-      .toEqual(expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]));
-    expect(contradictions({ timezone: "Europe/Paris" }, {}, "Chrome/149"))
-      .toEqual(expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]));
+    expect(
+      contradictions({ timezone: "Asia/Kolkata" }, { timezone: "Asia/Calcutta" }, "Chrome/149"),
+    ).not.toEqual(expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]));
+    expect(contradictions({ timezone: "Etc/UTC" }, { timezone: "UTC" }, "Chrome/149")).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]),
+    );
+    expect(contradictions({ timezone: "Europe/Paris" }, { timezone: "UTC" }, "Chrome/149")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]),
+    );
+    expect(contradictions({ timezone: "Europe/Paris" }, {}, "Chrome/149")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "timezone_mismatch" })]),
+    );
   });
   it("reports contradictory UA/platform/mobile and compares JS with collector headers", () => {
     const issues = contradictions(
@@ -334,5 +339,64 @@ describe("friction and mobile signals", () => {
         version,
       ),
     ).toThrow(/preset dimensions/);
+  });
+});
+
+describe("default identity and upkeep", () => {
+  const withDefault = (mode?: "native" | "compatible") =>
+    new IdentityService({
+      store,
+      getSession: () => null as never,
+      getOptions: () => undefined,
+      browserVersion: async () => version,
+      defaultMode: async () => mode,
+    });
+  it("gives the measured default mode only to browsers that name no identity of their own", async () => {
+    const auto = withDefault("compatible");
+    const plain = base();
+    await auto.prepare(plain);
+    expect(plain.compatibilityMode).toBe("compatible");
+    for (const own of [
+      { compatibilityMode: "native" as const },
+      { browserProfile: "work" },
+      { userAgent: "Mozilla/5.0 Chrome/149.0.0.0" },
+      { skipFingerprintInjection: true },
+    ]) {
+      const options = { ...base(), ...own };
+      await auto.prepare(options);
+      expect(options.compatibilityMode).toBe(own.compatibilityMode);
+    }
+    const legacy = base();
+    await withDefault(undefined).prepare(legacy);
+    expect(legacy.compatibilityMode).toBeUndefined();
+    await auto.close();
+  });
+  it("moves saved identities to a new Chrome major on its own and reports it", async () => {
+    const publish = vi.fn();
+    const upkeep = new IdentityService({
+      store,
+      getSession: () => null as never,
+      getOptions: () => undefined,
+      browserVersion: async () => version,
+      publish,
+    });
+    await upkeep.putProfile("account", { settings: { compatibilityMode: "native" } });
+    expect(await upkeep.migrateStale()).toMatchObject({ migrated: [] });
+    version = "Chromium 150.0.7900.2";
+    expect(await upkeep.migrateStale()).toEqual({ version, migrated: ["account"] });
+    expect((await upkeep.profile("account")).browserVersion).toBe(version);
+    expect(publish).toHaveBeenCalledWith(
+      "identity.migrated",
+      expect.objectContaining({ profile: "account", to: version }),
+    );
+    const options = { ...base(), identityProfile: "account" };
+    await expect(upkeep.prepare(options)).resolves.not.toThrow();
+    await upkeep.close();
+  });
+  it("reads the major from every way a Chrome build names itself", () => {
+    expect(major("Chromium 149.0.7800.1")).toBe(149);
+    expect(major("Chrome/153.0.8010.12")).toBe(153);
+    expect(major("Google Chrome for Testing 153.0.8010.12")).toBe(153);
+    expect(major("no version")).toBeUndefined();
   });
 });

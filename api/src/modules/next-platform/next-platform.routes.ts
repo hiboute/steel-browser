@@ -190,6 +190,14 @@ export default async function routes(server: FastifyInstance) {
       .type("application/json")
       .send(await server.doctor.get(sid(req), server.access.actor(req))),
   );
+  route("GET", "/storage", "get_storage_usage", (req) => {
+    server.access.actor(req);
+    return server.storage.report();
+  });
+  route("POST", "/storage/prune", "prune_storage", (req) => {
+    server.access.operator(server.access.actor(req));
+    return server.storage.prune();
+  });
   route("GET", "/budgets", "get_browser_budgets", (req) => {
     server.access.operator(server.access.actor(req));
     return server.budgets.get();

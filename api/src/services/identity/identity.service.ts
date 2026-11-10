@@ -27,6 +27,8 @@ export interface IdentityDependencies {
   getSession: (id: string) => Session;
   getOptions: (id: string) => StartSessionOptions | undefined;
   browserVersion?: () => Promise<string>;
+  /** Mode for a browser that asks for none: a fixed mode, or the scorecard's pick. */
+  defaultMode?: () => Promise<"native" | "compatible" | "legacy" | undefined>;
   egressProbe?: (
     name: string,
     proxyUrl?: string,
@@ -117,6 +119,41 @@ function alignFingerprint(
   for (const key of Object.keys(fp.headers)) if (/^sec-ch-ua/i.test(key)) delete fp.headers[key];
   fp.headers["user-agent"] = n.userAgent;
   if (locale) fp.headers["accept-language"] = locale;
+}
+
+/**
+ * Moves the Chrome version a fingerprint declares to the real one and leaves
+ * every other trait as it was. Returns false when nothing had to change.
+ */
+export function bumpFingerprintVersion(
+  fp: NonNullable<StartSessionOptions["fingerprint"]>,
+  version: string,
+): boolean {
+  const full = version.match(/\d+\.\d+\.\d+\.\d+/)?.[0];
+  const n = fp?.fingerprint?.navigator;
+  if (!full || !n?.userAgent) return false;
+  const declared = n.userAgent.match(/(?:Chrome|Chromium|HeadlessChrome)\/(\d+)/)?.[1];
+  if (!declared || Number(declared) === major(version)) return false;
+  const updateUA = (v: string) =>
+    v.replace(/(Chrome|Chromium|HeadlessChrome)\/\d+(?:\.\d+)*/g, `$1/${major(version)}.0.0.0`);
+  n.userAgent = updateUA(n.userAgent);
+  if (typeof n.appVersion === "string") n.appVersion = updateUA(n.appVersion);
+  const ch = n.userAgentData;
+  if (ch) {
+    ch.uaFullVersion = full;
+    for (const b of ch.brands ?? []) if (/chrom/i.test(b.brand)) b.version = String(major(version));
+    for (const b of ch.fullVersionList ?? []) if (/chrom/i.test(b.brand)) b.version = full;
+  }
+  fp.headers ??= {};
+  for (const key of Object.keys(fp.headers)) {
+    if (/^user-agent$/i.test(key)) fp.headers[key] = n.userAgent;
+    else if (/^sec-ch-ua(-full-version-list)?$/i.test(key))
+      fp.headers[key] = fp.headers[key].replace(
+        /("(?:Chromium|Google Chrome|Chrome)";v=")[\d.]+(")/g,
+        (_m, a, b) => `${a}${/full/i.test(key) ? full : major(version)}${b}`,
+      );
+  }
+  return true;
 }
 
 const keyFor = (options: StartSessionOptions) =>
@@ -385,6 +422,31 @@ export class IdentityService {
       return this.summary(p);
     });
   }
+  /** After a Chrome upgrade, move every saved identity to the new version. */
+  async migrateStale() {
+    const version = await this.browserVersion();
+    const migrated: string[] = [];
+    for (const summary of await this.listProfiles()) {
+      if (!summary.browserVersion || major(summary.browserVersion) === major(version)) continue;
+      try {
+        const p = await this.profile(summary.name);
+        await this.migrate(p.name, p.revision);
+        migrated.push(p.name);
+        this.d.publish?.("identity.migrated", {
+          profile: p.name,
+          from: summary.browserVersion,
+          to: version,
+        });
+      } catch {
+        // Left as it is: launching it still asks for an explicit migration.
+      }
+    }
+    return { version, migrated };
+  }
+  /** A saved browser's pinned fingerprint, moved to the running Chrome version. */
+  async refreshPinned(fp: NonNullable<StartSessionOptions["fingerprint"]>) {
+    return bumpFingerprintVersion(fp, await this.browserVersion()) ? fp : undefined;
+  }
   async captureProfile(name: string, id: string, expectedRevision?: number) {
     const session = this.d.getSession(id),
       options = this.d.getOptions(id) ?? ({ credentials: {} } as StartSessionOptions);
@@ -546,6 +608,19 @@ export class IdentityService {
       if (matches[0]) options.identityProfile = matches[0].name;
     }
     const version = await this.browserVersion();
+    // A browser that names no identity of its own gets the best measured mode.
+    // Saved browsers and pinned fingerprints keep the device they already are.
+    if (
+      options.compatibilityMode === undefined &&
+      !options.identityProfile &&
+      !options.fingerprint &&
+      !options.mobileProfile &&
+      !options.browserProfile &&
+      !options.userAgent &&
+      !options.skipFingerprintInjection &&
+      !options.isSelenium
+    )
+      options.compatibilityMode = (await this.d.defaultMode?.()) ?? options.compatibilityMode;
     if (options.identityProfile) {
       const p = await this.profile(options.identityProfile);
       profileRevision = p.revision;

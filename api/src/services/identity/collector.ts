@@ -206,6 +206,7 @@ export async function observe(page: Page) {
     } catch {}
     return {
       userAgent: n.userAgent,
+      webdriver: n.webdriver === true,
       platform: n.platform,
       languages: [...n.languages],
       language: n.language,

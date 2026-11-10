@@ -14,12 +14,25 @@ import {
   when,
 } from "./common";
 
+const size = (bytes: number) =>
+  bytes >= 1073741824
+    ? `${(bytes / 1073741824).toFixed(1)} GB`
+    : bytes >= 1048576
+    ? `${Math.round(bytes / 1048576)} MB`
+    : `${Math.ceil(bytes / 1024)} KB`;
+
 export function PlatformPage({ session }: { session?: SessionDetails | null }) {
   const [tab, setTab] = useState("checkpoints"),
     [result, setResult] = useState<any>(),
     [commandSession, setCommandSession] = useState(session?.id || "");
   const rows = useResource<any>(
-      tab === "checkpoints" ? "/v1/checkpoints" : tab === "budgets" ? "/v1/budgets" : null,
+      tab === "checkpoints"
+        ? "/v1/checkpoints"
+        : tab === "budgets"
+        ? "/v1/budgets"
+        : tab === "storage"
+        ? "/v1/storage"
+        : null,
       5000,
     ),
     action = useAction(rows.refresh);
@@ -33,10 +46,10 @@ export function PlatformPage({ session }: { session?: SessionDetails | null }) {
   return (
     <Page
       title="Browser operations"
-      description="Checkpoint browser state, diagnose failures, run bounded commands, and allocate capacity."
+      description="Checkpoint browser state, diagnose failures, run bounded commands, allocate capacity, and see what Steel keeps on disk."
     >
       <div className="history-tabs" role="tablist">
-        {["checkpoints", "diagnostics", "commands", "budgets"].map((value) => (
+        {["checkpoints", "diagnostics", "commands", "budgets", "storage"].map((value) => (
           <button
             key={value}
             role="tab"
@@ -272,6 +285,50 @@ export function PlatformPage({ session }: { session?: SessionDetails | null }) {
             value={{ active: rows.data.active, sites: rows.data.sites }}
             label="Current allocation"
           />
+        </>
+      )}
+      {tab === "storage" && rows.data?.kinds && (
+        <>
+          <div className="filter-bar">
+            <p className="field-hint">
+              {size(rows.data.totalBytes)} kept on disk.{" "}
+              {rows.data.lastPrune
+                ? `Last clean-up ${when(rows.data.lastPrune.at)}.`
+                : "No clean-up has run yet."}
+            </p>
+            <button
+              className="button"
+              disabled={action.busy}
+              onClick={() =>
+                void action
+                  .run("/v1/storage/prune", {})
+                  .then(setResult)
+                  .catch(() => {})
+              }
+            >
+              Clean up now
+            </button>
+          </div>
+          <table className="library-table">
+            <thead>
+              <tr>
+                <th>What</th>
+                <th>Size</th>
+                <th>Items</th>
+                <th>Kept for</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.data.kinds.map((kind: any) => (
+                <tr key={kind.key}>
+                  <td>{kind.label}</td>
+                  <td>{size(kind.bytes)}</td>
+                  <td>{kind.items}</td>
+                  <td>{kind.retention}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </>
       )}
       {result !== undefined && (

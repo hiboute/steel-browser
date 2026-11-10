@@ -46,6 +46,10 @@ export function IdentityPage({ session }: { session?: SessionDetails | null }) {
     tab === "lab" ? "/v1/compatibility/runs" : null,
     5000,
   );
+  const scorecards = useResource<{ configured: string; defaultMode: string; scorecards: any[] }>(
+    tab === "scorecard" ? "/v1/identity/scorecards" : null,
+    15000,
+  );
   const inspector = useResource<any>(tab === "inspect" && path ? `${path}/identity` : null, 0);
   const friction = useResource<any>(tab === "inspect" && path ? `${path}/friction` : null, 5000);
   const continuity = useResource<any>(
@@ -55,6 +59,7 @@ export function IdentityPage({ session }: { session?: SessionDetails | null }) {
   const action = useAction(() => {
     profiles.refresh();
     labs.refresh();
+    scorecards.refresh();
     inspector.refresh();
     friction.refresh();
     continuity.refresh();
@@ -109,7 +114,7 @@ export function IdentityPage({ session }: { session?: SessionDetails | null }) {
       }
     >
       <div className="history-tabs" role="tablist">
-        {["inspect", "profiles", "sites", "mobile", "lab"].map((value) => (
+        {["inspect", "profiles", "sites", "mobile", "lab", "scorecard"].map((value) => (
           <button
             key={value}
             role="tab"
@@ -139,6 +144,7 @@ export function IdentityPage({ session }: { session?: SessionDetails | null }) {
           profiles.error ||
           mobile.error ||
           labs.error ||
+          scorecards.error ||
           inspector.error ||
           friction.error ||
           continuity.error
@@ -368,6 +374,73 @@ export function IdentityPage({ session }: { session?: SessionDetails | null }) {
               label="Real-device capabilities and registration"
             />
           )}
+        </>
+      )}
+      {tab === "scorecard" && (
+        <>
+          <div className="filter-bar">
+            <p className="field-hint">
+              A browser that asks for no identity gets{" "}
+              <strong>{scorecards.data?.defaultMode}</strong>
+              {scorecards.data?.configured === "auto"
+                ? ", the best scoring mode of the latest run."
+                : `, set by configuration (${scorecards.data?.configured ?? "…"}).`}{" "}
+              Each night Steel opens one browser per mode and counts what a site could notice: 100
+              means nothing contradicts.
+            </p>
+            <button
+              className="button"
+              disabled={action.busy}
+              onClick={() =>
+                void action
+                  .run("/v1/identity/scorecard/run", {})
+                  .then(setDetail)
+                  .catch(() => {})
+              }
+            >
+              {action.busy ? "Measuring…" : "Measure now"}
+            </button>
+          </div>
+          {!scorecards.data?.scorecards.length && (
+            <Empty>No measurement yet. The first one runs shortly after a start.</Empty>
+          )}
+          <div className="resource-grid">
+            {scorecards.data?.scorecards.map((card, index) => (
+              <article className="resource-card" key={card.id}>
+                <div className="card-heading">
+                  <h2>{when(card.at)}</h2>
+                  {index === 0 && <span className="badge">Latest</span>}
+                  {card.changed && <span className="badge bad">Changed</span>}
+                </div>
+                <p className="field-hint">
+                  {card.browserVersion} · {card.trigger}
+                </p>
+                <table className="library-table">
+                  <tbody>
+                    {card.modes.map((mode: any) => (
+                      <tr key={mode.mode}>
+                        <td>
+                          {mode.mode}
+                          {card.recommended === mode.mode && " ★"}
+                        </td>
+                        <td>{mode.status === "measured" ? mode.score : mode.status}</td>
+                        <td>
+                          {[
+                            ...mode.errors,
+                            ...mode.failedChecks,
+                            ...mode.warnings,
+                            ...mode.signals,
+                          ].join(", ") ||
+                            mode.reason ||
+                            "Nothing found"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </article>
+            ))}
+          </div>
         </>
       )}
       {tab === "lab" && (

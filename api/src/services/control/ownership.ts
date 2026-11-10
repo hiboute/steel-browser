@@ -19,6 +19,8 @@ export interface ConnectionCredential {
 interface Resource {
   ownerId: string;
   generation: number;
+  /** When the record was created or last found in use; drives pruning. */
+  seenAt?: string;
   lease?: ControlLease;
   digest?: string;
 }
@@ -36,8 +38,13 @@ export class OwnershipService {
   async initialize() {
     const saved = (await this.store.read<Record<string, Resource>>("control/resources.json")) ?? {};
     // Tokens never survive restart. Persisted generation prevents stale socket fencing reuse.
+    const now = new Date().toISOString();
     for (const [id, r] of Object.entries(saved))
-      this.resources.set(id, { ownerId: r.ownerId, generation: r.generation + 1 });
+      this.resources.set(id, {
+        ownerId: r.ownerId,
+        generation: r.generation + 1,
+        seenAt: r.seenAt ?? now,
+      });
     await this.save();
   }
   owner(id: string) {
@@ -59,7 +66,7 @@ export class OwnershipService {
       Object.fromEntries(
         [...this.resources].map(([id, r]) => [
           id,
-          { ownerId: r.ownerId, generation: r.generation },
+          { ownerId: r.ownerId, generation: r.generation, seenAt: r.seenAt },
         ]),
       ),
     );
@@ -80,7 +87,7 @@ export class OwnershipService {
       if (old && old.ownerId !== ownerId)
         throw new AccessError("owner_conflict", "Resource owner cannot be changed implicitly", 409);
       if (!old) {
-        this.resources.set(id, { ownerId, generation: 0 });
+        this.resources.set(id, { ownerId, generation: 0, seenAt: new Date().toISOString() });
         await this.save();
       }
     });
@@ -276,6 +283,27 @@ export class OwnershipService {
       await this.save();
       await this.changed(id, null);
     });
+  }
+  /**
+   * Removes records of browsers that are gone: a session id that is not in
+   * `keep`, holds no lease and was last seen more than `days` ago. Records of
+   * saved browser profiles and other named resources are never touched.
+   */
+  async prune(keep: Set<string>, days: number) {
+    const cutoff = Date.now() - days * 86_400_000;
+    const session = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let removed = 0;
+    for (const [id, r] of [...this.resources]) {
+      if (keep.has(id)) {
+        r.seenAt = new Date().toISOString();
+        continue;
+      }
+      if (!session.test(id) || r.lease || Date.parse(r.seenAt ?? "") > cutoff) continue;
+      this.resources.delete(id);
+      removed++;
+    }
+    await this.save();
+    return removed;
   }
   /** Drops a record nobody can address any more (the previous idle browser). */
   async forget(id: string) {

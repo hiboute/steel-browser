@@ -301,9 +301,17 @@ export type CreateSession = {
    */
   isSelenium?: boolean;
   /**
-   * Flag to indicate if ads should be blocked in the session
+   * Refuse requests to known ad, analytics and tracker hosts, for this session only. The document the session navigates to always loads.
    */
   blockAds?: boolean;
+  /**
+   * Skip images, media and fonts, for this session only. Shorthand for optimizeBandwidth with blockImages, blockMedia and blockFonts.
+   */
+  saveData?: boolean;
+  /**
+   * Dismiss cookie consent banners of known consent managers. "reject" (or true) clicks the reject button and leaves a banner that only offers accept; "accept" still prefers reject and accepts when rejecting is not offered.
+   */
+  autoConsent?: boolean | "reject" | "accept";
   /**
    * Enable bandwidth optimizations. Passing true enables all flags (except hosts/patterns). Object allows granular control.
    */
@@ -312,6 +320,7 @@ export type CreateSession = {
     | {
         blockImages?: boolean;
         blockMedia?: boolean;
+        blockFonts?: boolean;
         blockStylesheets?: boolean;
         blockHosts?: Array<string>;
         blockUrlPatterns?: Array<string>;
@@ -457,6 +466,37 @@ export type SessionDetails = {
   egress?: string;
   recording?: boolean;
   handoff?: unknown;
+  /**
+   * What the session filters and dismisses, with its counters
+   */
+  pageFilters?: {
+    blockAds: boolean;
+    saveData: boolean;
+    autoConsent: "off" | "reject" | "accept";
+    /**
+     * Requests refused so far, all reasons together
+     */
+    requestsBlocked: number;
+    blocked: {
+      ads: number;
+      rules: number;
+      images: number;
+      media: number;
+      fonts: number;
+      stylesheets: number;
+    };
+    /**
+     * Consent banners that went away after their button was clicked
+     */
+    bannersDismissed: number;
+    lastBanner?: {
+      at: string;
+      manager: string;
+      action: "reject" | "accept";
+      label: string;
+      url: string;
+    };
+  };
   tabs?: Array<{
     url: string;
     title: string;
@@ -575,6 +615,37 @@ export type MultipleSessions = {
     egress?: string;
     recording?: boolean;
     handoff?: unknown;
+    /**
+     * What the session filters and dismisses, with its counters
+     */
+    pageFilters?: {
+      blockAds: boolean;
+      saveData: boolean;
+      autoConsent: "off" | "reject" | "accept";
+      /**
+       * Requests refused so far, all reasons together
+       */
+      requestsBlocked: number;
+      blocked: {
+        ads: number;
+        rules: number;
+        images: number;
+        media: number;
+        fonts: number;
+        stylesheets: number;
+      };
+      /**
+       * Consent banners that went away after their button was clicked
+       */
+      bannersDismissed: number;
+      lastBanner?: {
+        at: string;
+        manager: string;
+        action: "reject" | "accept";
+        label: string;
+        url: string;
+      };
+    };
     tabs?: Array<{
       url: string;
       title: string;
@@ -828,6 +899,37 @@ export type ReleaseSession = {
   egress?: string;
   recording?: boolean;
   handoff?: unknown;
+  /**
+   * What the session filters and dismisses, with its counters
+   */
+  pageFilters?: {
+    blockAds: boolean;
+    saveData: boolean;
+    autoConsent: "off" | "reject" | "accept";
+    /**
+     * Requests refused so far, all reasons together
+     */
+    requestsBlocked: number;
+    blocked: {
+      ads: number;
+      rules: number;
+      images: number;
+      media: number;
+      fonts: number;
+      stylesheets: number;
+    };
+    /**
+     * Consent banners that went away after their button was clicked
+     */
+    bannersDismissed: number;
+    lastBanner?: {
+      at: string;
+      manager: string;
+      action: "reject" | "accept";
+      label: string;
+      url: string;
+    };
+  };
   tabs?: Array<{
     url: string;
     title: string;
@@ -5552,6 +5654,20 @@ export type GetMetricsResponses = {
   200: unknown;
 };
 
+export type GetCommandsSchemaStaticData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/commands/schema";
+};
+
+export type GetCommandsSchemaStaticResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
 export type GetBrowserControlData = {
   body?: never;
   path: {
@@ -5860,6 +5976,34 @@ export type DownloadBrowserDiagnosisData = {
 };
 
 export type DownloadBrowserDiagnosisResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetStorageUsageData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/storage";
+};
+
+export type GetStorageUsageResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type PruneStorageData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/storage/prune";
+};
+
+export type PruneStorageResponses = {
   /**
    * Default Response
    */
@@ -6832,6 +6976,76 @@ export type GetCompatibilityRunData = {
 };
 
 export type GetCompatibilityRunResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ForgetHardSiteData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/hard-sites";
+};
+
+export type ForgetHardSiteResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListHardSitesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/hard-sites";
+};
+
+export type ListHardSitesResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type GetHardSiteAdviceData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/hard-sites/advice";
+};
+
+export type GetHardSiteAdviceResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type ListStealthScorecardsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/identity/scorecards";
+};
+
+export type ListStealthScorecardsResponses = {
+  /**
+   * Default Response
+   */
+  200: unknown;
+};
+
+export type RunStealthScorecardData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/identity/scorecard/run";
+};
+
+export type RunStealthScorecardResponses = {
   /**
    * Default Response
    */

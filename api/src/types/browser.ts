@@ -6,11 +6,13 @@ import type {
   SessionStorageData,
 } from "../services/context/types.js";
 import { BrowserFingerprintWithHeaders } from "fingerprint-generator";
+import type { BlockKind } from "../utils/requests.js";
 import type { CredentialsOptions } from "../modules/sessions/sessions.schema.js";
 
 export interface OptimizeBandwidthOptions {
   blockImages?: boolean;
   blockMedia?: boolean;
+  blockFonts?: boolean;
   blockStylesheets?: boolean;
   blockHosts?: string[];
   blockUrlPatterns?: string[];
@@ -40,6 +42,8 @@ export interface BrowserLauncherOptions {
   extensions?: string[];
   logSinkUrl?: string;
   blockAds?: boolean;
+  /** Told about every request the session's filters refuse, with the reason. */
+  onRequestBlocked?: (kind: BlockKind, url: string) => void;
   fingerprint?: BrowserFingerprintWithHeaders;
   optimizeBandwidth?: boolean | OptimizeBandwidthOptions;
   customHeaders?: Record<string, string>;

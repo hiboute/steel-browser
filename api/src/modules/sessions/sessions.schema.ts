@@ -84,7 +84,21 @@ export const CreateSession = SessionSettings.extend({
   blockAds: z
     .boolean()
     .optional()
-    .describe("Flag to indicate if ads should be blocked in the session"),
+    .describe(
+      "Refuse requests to known ad, analytics and tracker hosts, for this session only. The document the session navigates to always loads.",
+    ),
+  saveData: z
+    .boolean()
+    .optional()
+    .describe(
+      "Skip images, media and fonts, for this session only. Shorthand for optimizeBandwidth with blockImages, blockMedia and blockFonts.",
+    ),
+  autoConsent: z
+    .union([z.boolean(), z.enum(["reject", "accept"])])
+    .optional()
+    .describe(
+      'Dismiss cookie consent banners of known consent managers. "reject" (or true) clicks the reject button and leaves a banner that only offers accept; "accept" still prefers reject and accepts when rejecting is not offered.',
+    ),
   optimizeBandwidth: z
     .union([
       z.boolean(),
@@ -92,6 +106,7 @@ export const CreateSession = SessionSettings.extend({
         .object({
           blockImages: z.boolean().optional(),
           blockMedia: z.boolean().optional(),
+          blockFonts: z.boolean().optional(),
           blockStylesheets: z.boolean().optional(),
           blockHosts: z.array(z.string()).optional(),
           blockUrlPatterns: z.array(z.string()).optional(),
@@ -156,6 +171,36 @@ export const CreateSession = SessionSettings.extend({
   headless: z.boolean().optional().describe("Headless mode for the session"),
 });
 
+const PageFilters = z
+  .object({
+    blockAds: z.boolean(),
+    saveData: z.boolean(),
+    autoConsent: z.enum(["off", "reject", "accept"]),
+    requestsBlocked: z.number().int().describe("Requests refused so far, all reasons together"),
+    blocked: z.object({
+      ads: z.number().int(),
+      rules: z.number().int(),
+      images: z.number().int(),
+      media: z.number().int(),
+      fonts: z.number().int(),
+      stylesheets: z.number().int(),
+    }),
+    bannersDismissed: z
+      .number()
+      .int()
+      .describe("Consent banners that went away after their button was clicked"),
+    lastBanner: z
+      .object({
+        at: z.string().datetime(),
+        manager: z.string(),
+        action: z.enum(["reject", "accept"]),
+        label: z.string(),
+        url: z.string(),
+      })
+      .optional(),
+  })
+  .describe("What the session filters and dismisses, with its counters");
+
 const SessionDetails = z.object({
   ownerId: z.string().optional(),
   id: z.string().uuid().describe("Unique identifier for the session"),
@@ -183,6 +228,7 @@ const SessionDetails = z.object({
   egress: z.string().optional(),
   recording: z.boolean().optional(),
   handoff: z.any().nullable().optional(),
+  pageFilters: PageFilters.optional(),
   tabs: z.array(z.object({ url: z.string(), title: z.string(), active: z.boolean() })).optional(),
   duration: z.number().int().describe("Duration of the session in milliseconds"),
   eventCount: z.number().int().describe("Number of events processed in the session"),

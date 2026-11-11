@@ -26,6 +26,12 @@ import { SessionHookRegistry, type EndReason, type ParkReason } from "./session-
 import { readProfileCookies, writeProfileCookies } from "./profile-cookies.js";
 import { PlatformStore } from "./platform/store.js";
 import { deepMerge } from "../utils/context.js";
+import {
+  applySaveData,
+  countBlocked,
+  createPageFilters,
+  type AutoConsentOption,
+} from "./page-filters.js";
 
 export type Session = SessionDetails & {
   completion: Promise<void>;
@@ -140,6 +146,10 @@ export interface StartSessionOptions {
   browserProfile?: string;
   blockAds?: boolean;
   optimizeBandwidth?: boolean | OptimizeBandwidthOptions;
+  /** Skip images, media and fonts. */
+  saveData?: boolean;
+  /** Dismiss cookie consent banners: reject, or accept when rejecting is not offered. */
+  autoConsent?: AutoConsentOption;
   extensions?: string[];
   timezone?: string;
   dimensions?: { width: number; height: number };
@@ -651,6 +661,12 @@ export class SessionService {
         isSelenium: !!isSelenium,
         deviceConfig,
         userAgent: "",
+        pageFilters: createPageFilters(
+          options,
+          options._resuming
+            ? this.snapshots.get(sessionId)?.details.pageFilters ?? undefined
+            : undefined,
+        ),
         completion: promise,
         complete: resolve,
         proxyServer: undefined,
@@ -725,7 +741,7 @@ export class SessionService {
         value: boolean | OptimizeBandwidthOptions | undefined,
       ): OptimizeBandwidthOptions | undefined => {
         if (value === true) {
-          return { blockImages: true, blockMedia: true, blockStylesheets: true };
+          return { blockImages: true, blockMedia: true, blockFonts: true, blockStylesheets: true };
         }
         if (value && typeof value === "object") {
           return { ...value };
@@ -733,7 +749,11 @@ export class SessionService {
         return undefined;
       };
 
-      const normalizedOptimize = normalizeOptimizeBandwidth(optimizeBandwidth);
+      const normalizedOptimize = applySaveData(
+        normalizeOptimizeBandwidth(optimizeBandwidth),
+        options.saveData,
+      );
+      const pageFilters = session.pageFilters!;
 
       if (proxyUrl) {
         session.proxyServer = await this.proxyFactory(proxyUrl, normalizedOptimize);
@@ -749,6 +769,7 @@ export class SessionService {
         sessionContext,
         userAgent,
         blockAds,
+        onRequestBlocked: (kind) => countBlocked(pageFilters, kind),
         fingerprint,
         optimizeBandwidth: normalizedOptimize,
         extensions: extensions || [],

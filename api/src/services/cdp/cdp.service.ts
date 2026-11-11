@@ -16,7 +16,6 @@ import puppeteer, {
   Browser,
   BrowserContext,
   CDPSession,
-  HTTPRequest,
   Page,
   Protocol,
   Target,
@@ -28,14 +27,12 @@ import { loadFingerprintScript } from "../../scripts/index.js";
 import { traceable, tracer } from "../../telemetry/tracer.js";
 import { BrowserEventType, BrowserLauncherOptions, EmitEvent } from "../../types/index.js";
 import {
-  tryParseUrl,
-  isAdRequest,
-  isHeavyMediaRequest,
-  isHostBlocked,
-  isUrlMatchingPatterns,
+  blockReason,
   compileUrlPatterns,
+  defaultAdMatcher,
   normalizeHosts,
-  isImageRequest,
+  type BlockKind,
+  type RequestFilter,
 } from "../../utils/requests.js";
 import { filterHeaders, getChromeExecutablePath, installMouseHelper } from "../../utils/browser.js";
 import {
@@ -101,6 +98,7 @@ export class CDPService extends EventEmitter {
   private wsProxyServer: httpProxy;
   private primaryPage: Page | null;
   private downloadSettings: CDPSession | null = null;
+  private requestFilterSession: CDPSession | null = null;
   private launchConfig?: BrowserLauncherOptions;
   private defaultLaunchConfig: BrowserLauncherOptions;
   private currentSessionConfig: BrowserLauncherOptions | null;
@@ -481,12 +479,9 @@ export class CDPService extends EventEmitter {
           return;
         }
 
-        if (this.requiresRequestInterception()) {
-          await page.setRequestInterception(true);
-          page.on("request", (request) => this.handlePageRequest(request, page));
-        } else {
-          await this.blockFileRequests(page);
-        }
+        // Ads, saveData and operator rules are filtered once for the whole browser
+        // (applyRequestFilter); a page only needs its file:// guard.
+        await this.blockFileRequests(page);
 
         page.on("response", (response) => {
           if (response.url().startsWith("file://")) {
@@ -540,64 +535,108 @@ export class CDPService extends EventEmitter {
     return Boolean(
       optimize.blockImages ||
         optimize.blockMedia ||
+        optimize.blockFonts ||
         optimize.blockStylesheets ||
         optimize.blockHosts?.length ||
         optimize.blockUrlPatterns?.length,
     );
   }
 
-  private async handlePageRequest(request: HTTPRequest, page: Page) {
-    const url = request.url();
-
-    const parsed = tryParseUrl(url);
+  /**
+   * Turns the session's request filter (blockAds, optimizeBandwidth and so
+   * saveData) on or off for the running browser.
+   *
+   * It intercepts on the browser target, not on each page: a page created and
+   * navigated by a CDP client in one go would otherwise load before a per-page
+   * interception is in place. One Chrome serves one session, so the filter
+   * never reaches another session's browser.
+   */
+  private async applyRequestFilter(): Promise<void> {
+    const previous = this.requestFilterSession;
+    this.requestFilterSession = null;
+    // Chrome lets the requests a detached interceptor still held go through.
+    if (previous) await previous.detach().catch(() => {});
+    if (!this.browserInstance || !this.requiresRequestInterception()) return;
 
     const optimize = this.launchConfig?.optimizeBandwidth;
-    const isOptimizeObject = typeof optimize === "object";
+    const flags = typeof optimize === "object" ? optimize : undefined;
+    const filter: RequestFilter = {
+      ads: this.launchConfig?.blockAds ? defaultAdMatcher() : undefined,
+      hosts: this.blockedHosts,
+      urlPatterns: this.compiledUrlPatterns,
+      images: !!flags?.blockImages,
+      media: !!flags?.blockMedia,
+      fonts: !!flags?.blockFonts,
+      stylesheets: !!flags?.blockStylesheets,
+    };
+    const onBlocked = this.launchConfig?.onRequestBlocked;
+    const session = await this.browserInstance.target().createCDPSession();
+    session.on("Fetch.requestPaused", (event: Protocol.Fetch.RequestPausedEvent) => {
+      void this.handlePausedRequest(session, event, filter, onBlocked);
+    });
+    await session.send("Fetch.enable", {
+      patterns: [{ urlPattern: "*", requestStage: "Request" }],
+    });
+    this.requestFilterSession = session;
+  }
 
-    if (parsed && this.launchConfig?.blockAds && isAdRequest(parsed)) {
-      this.logger.debug(`[CDPService] Blocked request to ad related resource: ${url}`);
-      await request.abort();
-      return;
+  private async handlePausedRequest(
+    session: CDPSession,
+    event: Protocol.Fetch.RequestPausedEvent,
+    filter: RequestFilter,
+    onBlocked?: (kind: BlockKind, url: string) => void,
+  ) {
+    const url = event.request.url;
+    let reason: BlockKind | undefined;
+    try {
+      const resourceType = (event.resourceType ?? "Other").toLowerCase();
+      // A page target carries the id of its main frame.
+      const pageTarget = this.browserInstance
+        ?.targets()
+        .find((target) => target.type() === "page" && this.getTargetIdOf(target) === event.frameId);
+      const headers = event.request.headers ?? {};
+      reason = blockReason(
+        {
+          url,
+          resourceType,
+          mainFrameNavigation: resourceType === "document" && !!pageTarget,
+          pageUrl: pageTarget?.url(),
+          referrer: headers.Referer ?? headers.referer,
+        },
+        filter,
+      );
+    } catch (error) {
+      this.logger.debug({ err: error }, `[CDPService] Could not classify request ${url}`);
     }
 
-    if (
-      (parsed && isHostBlocked(parsed, this.blockedHosts)) ||
-      isUrlMatchingPatterns(url, this.compiledUrlPatterns)
-    ) {
-      this.logger.debug(`[CDPService] Blocked request to blocked host or pattern: ${url}`);
-      await request.abort();
-      return;
-    }
-
-    // Block resources via optimizeBandwidth
-    const blockImages = isOptimizeObject ? !!optimize.blockImages : false;
-    const blockMedia = isOptimizeObject ? !!optimize.blockMedia : false;
-    const blockStylesheets = isOptimizeObject ? !!optimize.blockStylesheets : false;
-
-    if (parsed && (blockImages || blockMedia || blockStylesheets)) {
-      const resourceType = request.resourceType();
-      if (
-        (blockImages && (resourceType === "image" || isImageRequest(parsed))) ||
-        (blockMedia && (resourceType === "media" || isHeavyMediaRequest(parsed))) ||
-        (blockStylesheets && resourceType === "stylesheet")
-      ) {
-        this.logger.debug(
-          `[CDPService] Blocked ${resourceType} resource due to optimizeBandwidth (${
-            blockImages ? "blockImages" : ""
-          }${blockMedia ? "blockMedia" : ""}${blockStylesheets ? "blockStylesheets" : ""}): ${url}`,
-        );
-        await request.abort();
-        return;
+    try {
+      if (reason) {
+        this.logger.debug(`[CDPService] Blocked request (${reason}): ${url}`);
+        // The page sees what an ad blocker produces: net::ERR_BLOCKED_BY_CLIENT.
+        await session.send("Fetch.failRequest", {
+          requestId: event.requestId,
+          errorReason: "BlockedByClient",
+        });
+        try {
+          onBlocked?.(reason, url);
+        } catch (error) {
+          this.logger.debug({ err: error }, "[CDPService] Blocked request observer failed");
+        }
+      } else {
+        await session.send("Fetch.continueRequest", { requestId: event.requestId });
       }
+    } catch (error) {
+      // The request went away with its page, or the browser is closing.
+      if (isTargetClosedError(error)) return;
+      this.logger.debug(
+        { err: error },
+        `[CDPService] Could not resolve intercepted request ${url}`,
+      );
     }
+  }
 
-    if (url.startsWith("file://")) {
-      this.logger.error(`[CDPService] Blocked request to file protocol: ${url}`);
-      page.close().catch(() => {});
-      this.endSession(ShutdownReason.SECURITY_VIOLATION);
-    } else {
-      await request.continue();
-    }
+  private getTargetIdOf(target: Target): string | undefined {
+    return (target as any)._targetId as string | undefined;
   }
 
   public async createPage(): Promise<Page> {
@@ -638,6 +677,7 @@ export class CDPService extends EventEmitter {
       await this.shutdownHook();
       this.fingerprintData = null;
       this.currentSessionConfig = null;
+      this.requestFilterSession = null;
       this.browserInstance = null;
       this.wsEndpoint = null;
       this.emit("close");
@@ -774,6 +814,11 @@ export class CDPService extends EventEmitter {
           const reuseHosts =
             typeof reuseOptimize === "object" ? reuseOptimize.blockHosts : undefined;
           this.blockedHosts = reuseHosts?.length ? normalizeHosts(reuseHosts) : [];
+          await executeBestEffort(
+            this.logger,
+            async () => this.applyRequestFilter(),
+            "Failed to install the request filter",
+          );
 
           await executeCritical(
             async () => this.refreshPrimaryPage(),
@@ -1246,6 +1291,13 @@ export class CDPService extends EventEmitter {
             );
           },
           "Failed to configure download behavior",
+        );
+
+        // In place before any page of the session can navigate.
+        await executeBestEffort(
+          this.logger,
+          async () => this.applyRequestFilter(),
+          "Failed to install the request filter",
         );
 
         this.browserInstance.on("targetcreated", (target) => {

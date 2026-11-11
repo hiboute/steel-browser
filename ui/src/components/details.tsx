@@ -43,6 +43,14 @@ function detailsFor(session: SessionDetails): Detail[] {
     details.push({ label: "Proxy traffic", value: `${sent} sent, ${received} received` });
   }
 
+  const filters = session.pageFilters;
+  if (filters && (filters.blockAds || filters.saveData || filters.requestsBlocked > 0)) {
+    details.push({ label: "Requests blocked", value: String(filters.requestsBlocked) });
+  }
+  if (filters && filters.autoConsent !== "off") {
+    details.push({ label: "Cookie banners dismissed", value: String(filters.bannersDismissed) });
+  }
+
   details.push(
     { label: "Solve captcha", value: Boolean(session.solveCaptcha) },
     { label: "Selenium", value: Boolean(session.isSelenium) },

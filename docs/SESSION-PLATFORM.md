@@ -285,6 +285,105 @@ one. Defaults are 2 FPS, 1280-pixel width, JPEG quality 60, 300 MB per session,
 delete old recordings or adjust the cap before restarting. The UI offers playback
 beside the activity timeline. `RRWEB_RECORDING=false` remains independent.
 
+## Lighter pages: ads, data saving and consent banners
+
+Three options on `POST /v1/sessions` make pages lighter for one session. They
+are off unless asked for, and they never reach another session: each session
+has its own Chrome.
+
+```json
+{ "blockAds": true, "saveData": true, "autoConsent": "reject" }
+```
+
+| Option | Values | Effect |
+| --- | --- | --- |
+| `blockAds` | `true`, `false` | Refuses requests to known ad, analytics and tracker hosts |
+| `saveData` | `true`, `false` | Skips images, media and fonts |
+| `autoConsent` | `"reject"`, `"accept"`, `true` (same as `"reject"`), `false` | Dismisses cookie consent banners |
+
+### Request filter (`blockAds`, `saveData`)
+
+Both use one interceptor on the browser target (CDP `Fetch`), installed before
+the session's first page exists, so a tab that a CDP client opens and navigates
+in one go is filtered from its first request. A refused request fails with
+`net::ERR_BLOCKED_BY_CLIENT`, as with an ad blocker. A session with neither
+option (and no `optimizeBandwidth`) has no interceptor at all.
+
+- `blockAds` uses the list in `api/src/utils/ad-hosts.ts` (about 400 domains,
+  matched with their subdomains). `BLOCK_ADS_EXTRA_HOSTS` adds hosts and
+  `BLOCK_ADS_ALLOW_HOSTS` exempts hosts, both comma separated and read at start.
+  The list holds no consent manager, so a page is never locked behind a banner
+  that could not load.
+- The document the session navigates to always loads, listed or not, and a
+  listed site keeps its own resources while it is the page being visited.
+- `saveData` is shorthand for `optimizeBandwidth` with `blockImages`,
+  `blockMedia` and `blockFonts`. Stylesheets and scripts still load, so layout
+  and behaviour stay intact; images show as broken. `optimizeBandwidth` keeps
+  its granular flags (`blockStylesheets`, `blockHosts`, `blockUrlPatterns`) and
+  can be combined with `saveData`.
+- Only http(s) requests are filtered. WebSocket traffic is not.
+
+### Consent banners (`autoConsent`)
+
+After each main-frame navigation the page is looked at a few times over about
+15 seconds. When a consent banner is identified, its reject button is clicked.
+
+- `"reject"` clicks reject (or "only necessary") and leaves a banner that only
+  offers accept. `"accept"` still prefers reject and accepts only when the
+  banner offers no reject.
+- Recognised by their own markup: OneTrust, Cookiebot, Didomi, Quantcast,
+  Usercentrics, TrustArc, Sourcepoint, Google (search dialog, consent page,
+  Funding Choices), CookieYes, Complianz, iubenda, Osano, Klaro, Borlabs,
+  Axeptio, tarteaucitron, consentmanager, HubSpot, Civic and Termly. Rules are
+  in `api/src/services/consent/consent-rules.ts`.
+- Any other banner must be a visible block whose id, class or label names
+  cookies or consent, whose text mentions cookies, with at most eight buttons
+  and no text field. Its button is clicked only when its accessible name is
+  exactly on the label list (English, French, German, Spanish, Italian,
+  Portuguese, Dutch, Polish and the Nordic languages).
+- Nothing outside an identified banner is ever clicked. Links that navigate are
+  not buttons. At most two clicks are made per document.
+- Nothing is clicked while the session waits for a person: a waiting handoff, a
+  pending workflow review, or a human control lease. The looks that remain for
+  that document resume afterwards.
+- The click is a DOM click (`isTrusted` is false). A banner that appears more
+  than about 15 seconds after navigation is not seen. Selenium sessions are not
+  watched.
+
+Each click is a timeline entry (`kind: "consent"`, `tool: "consent.reject"` or
+`"consent.accept"`, `status: "done"` when the button went away, `"unconfirmed"`
+otherwise, `args.manager` and `args.label`) and a `consent.dismissed` or
+`consent.clicked` event.
+
+### What a session reports
+
+Session details (`GET /v1/sessions/:id`, the list, and the create, park, resume
+and release responses) carry `pageFilters`:
+
+```json
+{
+  "blockAds": true,
+  "saveData": true,
+  "autoConsent": "reject",
+  "requestsBlocked": 5,
+  "blocked": {"ads": 1, "rules": 0, "images": 2, "media": 1, "fonts": 1, "stylesheets": 0},
+  "bannersDismissed": 1,
+  "lastBanner": {
+    "at": "2026-01-01T10:00:00.000Z",
+    "manager": "onetrust",
+    "action": "reject",
+    "label": "Reject All",
+    "url": "https://example.com/"
+  }
+}
+```
+
+`autoConsent` is `"off"`, `"reject"` or `"accept"`. `blocked.rules` counts
+`optimizeBandwidth.blockHosts` and `blockUrlPatterns`. `bannersDismissed` counts
+banners whose button went away after the click. Options and counters survive
+park and resume. The Start session dialog has a switch for each option, and the
+session details show the two totals.
+
 ## Warm browsers, extraction, watchers and extensions
 
 Warm definitions are persisted and reconciled at startup. Use `GET /v1/warm`,

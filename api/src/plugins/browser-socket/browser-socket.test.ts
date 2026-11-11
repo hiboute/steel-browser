@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import net from "node:net";
-import plugin, { parseUpgradeParams } from "./browser-socket.js";
+import plugin, { parseUpgradeParams, socketResourceId } from "./browser-socket.js";
 
 describe("parseUpgradeParams", () => {
   it("reads query params from a normal upgrade path", () => {
@@ -220,5 +220,36 @@ describe("upgrade handler hardening", () => {
     expect(handlerMock).toHaveBeenCalledTimes(1);
     expect(sock.end).not.toHaveBeenCalled();
     expect(fastify.log.info).toHaveBeenCalledWith("Upgrading browser socket...");
+  });
+});
+
+describe("socketResourceId", () => {
+  const primary = { name: "primary" };
+  const second = { name: "second" };
+  const sessions = (live: { id: string; cdpService: unknown }[]) => ({
+    listSessions: () => live,
+    activeSession: live[live.length - 1] ?? { id: "idle" },
+  });
+
+  it("names the scoped session when there is one", () => {
+    expect(
+      socketResourceId({ id: "b" }, sessions([{ id: "a", cdpService: primary }]), primary),
+    ).toBe("b");
+  });
+
+  it("gives the unscoped socket to the session in the primary browser, not the newest one", () => {
+    const live = [
+      { id: "first", cdpService: primary },
+      { id: "newest", cdpService: second },
+    ];
+    expect(socketResourceId(undefined, sessions(live), primary)).toBe("first");
+  });
+
+  it("falls back to the active session when no session lives in the primary browser", () => {
+    expect(
+      socketResourceId(undefined, sessions([{ id: "other", cdpService: second }]), primary),
+    ).toBe("other");
+    expect(socketResourceId(undefined, sessions([]), primary)).toBe("idle");
+    expect(socketResourceId(undefined, undefined, primary)).toBeUndefined();
   });
 });

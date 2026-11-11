@@ -19,6 +19,27 @@ const wss = new WebSocketServer({ noServer: true });
 
 const SCOPED_SOCKET = /^\/v1\/sessions\/([^/]+)\/(cdp|cast|logs|pageId|recording)\/?$/;
 
+/**
+ * The session whose access rules guard a browser socket. A scoped socket names
+ * its session. The unscoped one is the primary browser's, so it belongs to the
+ * session living in that browser, not to the newest live session: with several
+ * sessions live those differ, and the owner's own control token was refused.
+ */
+export function socketResourceId(
+  session: { id: string } | undefined,
+  sessions:
+    | {
+        listSessions(): { id: string; cdpService?: unknown }[];
+        activeSession: { id: string };
+      }
+    | undefined,
+  primaryCdp: unknown,
+): string | undefined {
+  if (session) return session.id;
+  const owner = sessions?.listSessions().find((s) => s.cdpService === primaryCdp);
+  return owner?.id ?? sessions?.activeSession.id;
+}
+
 function rejectUpgrade(socket: Duplex, status: string) {
   if (!socket.destroyed && socket.writable) {
     try {
@@ -112,7 +133,7 @@ const browserWebSocket: FastifyPluginAsync<BrowserSocketOptions> = async (
         return;
       }
 
-      const resourceId = session?.id ?? fastify.sessionService?.activeSession.id;
+      const resourceId = socketResourceId(session, fastify.sessionService, fastify.cdpService);
       let credential:
         | import("../../services/control/ownership.js").ConnectionCredential
         | undefined;

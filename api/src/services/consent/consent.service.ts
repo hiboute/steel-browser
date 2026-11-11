@@ -28,6 +28,9 @@ interface PageState {
   generation: number;
   clicks: number;
   busy: boolean;
+  /** A retry is waiting for a handoff, review or human control to end. */
+  holding: boolean;
+  holdRetries: number;
   /** Origins where a banner was already dismissed on this page. */
   settled: Set<string>;
 }
@@ -45,6 +48,9 @@ export const CONSENT_SCAN_DELAYS = [400, 1200, 2500, 4500, 7000, 10_000, 15_000]
 const SETTLED_SCAN_DELAYS = [2000, 6000];
 const MAX_CLICKS_PER_DOCUMENT = 2;
 const MAX_CHILD_FRAMES = 8;
+const HOLD_RETRY_MS = 3000;
+/** About ten minutes of waiting for a hold to end, per document. */
+const MAX_HOLD_RETRIES = 200;
 const CONFIRM_DELAY_MS = 800;
 
 function originOf(url: string): string {
@@ -97,6 +103,7 @@ export class ConsentService {
       record: (event: ConsentEvent) => void | Promise<void>;
       log: (error: unknown) => void;
       delays?: number[];
+      holdRetryMs?: number;
     },
   ) {}
 
@@ -121,6 +128,8 @@ export class ConsentService {
         generation: 0,
         clicks: 0,
         busy: false,
+        holding: false,
+        holdRetries: 0,
         settled: new Set(),
       };
       entry.pages.set(page, state);
@@ -163,6 +172,8 @@ export class ConsentService {
     state.timers.clear();
     state.generation += 1;
     state.clicks = 0;
+    state.holding = false;
+    state.holdRetries = 0;
     const url = page.url();
     if (!/^https?:/i.test(url)) return;
     const generation = state.generation;
@@ -188,6 +199,29 @@ export class ConsentService {
     );
   }
 
+  /** A handoff, a review or a person's control outlasting the scan window
+   * must not cost the document its scan: look again once the hold is over. */
+  private retryAfterHold(
+    id: string,
+    entry: Entry,
+    page: Page,
+    state: PageState,
+    generation: number,
+  ) {
+    const session = this.d.getSession(id);
+    if (!session || session.status !== "live" || !this.d.paused(id)) return;
+    if (state.holding || state.holdRetries >= MAX_HOLD_RETRIES) return;
+    state.holding = true;
+    state.holdRetries += 1;
+    const timer = setTimeout(() => {
+      state.timers.delete(timer);
+      state.holding = false;
+      void this.scan(id, entry, page, state, generation).catch(this.d.log);
+    }, this.d.holdRetryMs ?? HOLD_RETRY_MS);
+    timer.unref();
+    state.timers.add(timer);
+  }
+
   private allowed(id: string): boolean {
     const session = this.d.getSession(id);
     return !!session && session.status === "live" && !this.d.paused(id);
@@ -195,9 +229,15 @@ export class ConsentService {
 
   private async scan(id: string, entry: Entry, page: Page, state: PageState, generation: number) {
     if (state.busy || !this.current(id, entry, page, state, generation)) return;
-    if (state.clicks >= MAX_CLICKS_PER_DOCUMENT || !this.allowed(id)) return;
+    if (state.clicks >= MAX_CLICKS_PER_DOCUMENT) return;
+    if (!this.allowed(id)) {
+      this.retryAfterHold(id, entry, page, state, generation);
+      return;
+    }
     state.busy = true;
     try {
+      // The address of the document being scanned: a consent click can navigate.
+      const url = page.url();
       const main = page.mainFrame();
       const children = page
         .frames()
@@ -209,13 +249,16 @@ export class ConsentService {
           this.current(id, entry, page, state, generation),
         );
         if (!outcome) continue;
-        state.clicks += 1;
-        const url = page.url();
-        if (outcome.dismissed) {
-          state.settled.add(originOf(url));
-          for (const timer of state.timers) clearTimeout(timer);
-          state.timers.clear();
+        // The click may have loaded another document, whose scans are already
+        // scheduled: only this document's state is touched.
+        if (this.current(id, entry, page, state, generation)) {
+          state.clicks += 1;
+          if (outcome.dismissed) {
+            for (const timer of state.timers) clearTimeout(timer);
+            state.timers.clear();
+          }
         }
+        if (outcome.dismissed) state.settled.add(originOf(url));
         await this.d.record({ sessionId: id, url, ...outcome });
         return;
       }

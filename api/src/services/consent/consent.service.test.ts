@@ -120,6 +120,20 @@ describe("ConsentService", () => {
     expect(events).toHaveLength(1);
   });
 
+  it("still dismisses the banner when the hold outlasts the scan window", async () => {
+    vi.useFakeTimers();
+    const fake = fakeSession(BANNER);
+    let reason: string | undefined = "handoff";
+    const { consent, events } = service(fake.session, () => reason);
+    await consent.attach(fake.session, "reject");
+    await vi.advanceTimersByTimeAsync(60_000); // every scheduled scan has fired
+    expect(fake.clicks).toEqual([]);
+    reason = undefined;
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(fake.clicks).toEqual(["onetrust-reject-all-handler"]);
+    expect(events).toHaveLength(1);
+  });
+
   it("clicks nothing in a session that is not live", async () => {
     vi.useFakeTimers();
     const fake = fakeSession(BANNER);

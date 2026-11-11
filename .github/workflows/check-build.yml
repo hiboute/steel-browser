@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - main
+  # By hand, for a branch whose pull request events were missed.
+  workflow_dispatch:
 
 jobs:
   check-docker-build:

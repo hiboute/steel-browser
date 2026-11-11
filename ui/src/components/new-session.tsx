@@ -97,6 +97,8 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
             width && height ? { width: Number(width), height: Number(height) } : undefined,
           userAgent: text("userAgent"),
           blockAds: data.get("blockAds") === "on",
+          saveData: data.get("saveData") === "on",
+          autoConsent: data.get("autoConsent") === "on" ? "reject" : undefined,
           cookieSets: data.getAll("cookieSets").map(String),
           browserProfile: text("browserProfile"),
           vpn:
@@ -272,6 +274,20 @@ export function NewSessionButton({ onStarted }: { onStarted: (session: SessionDe
                 role="switch"
                 defaultChecked
               />
+            </label>
+            <label className="switch-row">
+              <span className="switch-text">
+                <span>Save data</span>
+                <span className="field-hint">Skips images, media and fonts.</span>
+              </span>
+              <input className="switch" name="saveData" type="checkbox" role="switch" />
+            </label>
+            <label className="switch-row">
+              <span className="switch-text">
+                <span>Reject cookie banners</span>
+                <span className="field-hint">Clicks reject on known consent banners.</span>
+              </span>
+              <input className="switch" name="autoConsent" type="checkbox" role="switch" />
             </label>
             <SavedBrowserField key={`b${opened}`} />
             <VpnField key={`v${opened}`} />

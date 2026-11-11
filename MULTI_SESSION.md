@@ -70,6 +70,10 @@ implemented work from deployment verification.
   creation. The default expiry action is parking; `keepAlive` exempts idle expiry
   only. The viewer and read-only polling do not reset idle time.
 - A session whose Chrome dies (crash, kill) is released automatically.
+- `blockAds`, `saveData` and `autoConsent` on creation block ad and tracker hosts,
+  skip images, media and fonts, and dismiss cookie consent banners, for that
+  session only. Session details report what is on and the counters as
+  `pageFilters`. See the operator guide, "Lighter pages".
 
 ## Cookie library
 

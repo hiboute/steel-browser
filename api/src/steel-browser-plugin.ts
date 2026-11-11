@@ -3,6 +3,7 @@ import identityPlugin from "./services/identity/identity.plugin.js";
 import fleetPlugin from "./services/fleet/fleet.plugin.js";
 import dataPlugin from "./services/data/data.plugin.js";
 import workflowsPlugin from "./services/workflows/workflows.plugin.js";
+import consentPlugin from "./services/consent/consent.plugin.js";
 import workbenchPlugin from "./services/workbench/workbench.plugin.js";
 import workspaceIndexPlugin from "./services/workspace-index.plugin.js";
 import { isSensitiveSession } from "./services/data/privacy.js";
@@ -188,6 +189,7 @@ const steelBrowserPlugin: FastifyPluginAsync<SteelBrowserConfig> = async (fastif
         );
     },
   });
+  await fastify.register(consentPlugin);
   await fastify.register(workbenchPlugin);
   await fastify.register(workspaceIndexPlugin);
 

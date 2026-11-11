@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -93,6 +96,8 @@ function fakeBrowser(): Browser {
 function lifecycleFixture() {
   const service = new CDPService({}, logger as unknown as FastifyBaseLogger);
   vi.spyOn(service, "getBrowserState").mockResolvedValue({});
+  // The fixture profile is not a real directory; nothing may be written to it.
+  vi.spyOn(service as any, "setupUserPreferences").mockResolvedValue(undefined);
   const events: Array<{
     phase: "launch" | "shutdown";
     config: BrowserLauncherOptions | null;
@@ -518,6 +523,70 @@ describe("CDPService downloads", () => {
     );
     expect(session.detach).not.toHaveBeenCalled();
     await service.shutdown(ShutdownReason.SESSION_END);
+  });
+});
+
+describe("CDPService profile preferences", () => {
+  let profile: string;
+
+  beforeEach(async () => {
+    vi.mocked(getExtensionPaths).mockResolvedValue([]);
+    vi.mocked(puppeteer.launch).mockImplementation(async () => fakeBrowser());
+    profile = await mkdtemp(path.join(os.tmpdir(), "steel-profile-preferences-"));
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    await rm(profile, { recursive: true, force: true });
+  });
+
+  const preferences = async () =>
+    JSON.parse(await readFile(path.join(profile, "Default", "Preferences"), "utf8"));
+  const launch = async (extra: Partial<BrowserLauncherOptions> = {}) => {
+    const service = new CDPService({}, logger as unknown as FastifyBaseLogger);
+    await service.launch({ ...sessionConfig("only", "metadata"), userDataDir: profile, ...extra });
+    await service.shutdown(ShutdownReason.SESSION_END);
+  };
+
+  // Chrome reopens the previous run's tabs in a profile that never chose what
+  // to open at startup, so a profile launched again and again kept every tab.
+  test("tells Chrome not to reopen the previous run's tabs, in a profile with no preferences of its own", async () => {
+    await launch();
+
+    expect((await preferences()).session).toEqual({ restore_on_startup: 5 });
+    const args = vi.mocked(puppeteer.launch).mock.calls[0][0]!.args!;
+    const disabled = args.find((arg) => arg.startsWith("--disable-features="))!;
+    expect(disabled.slice("--disable-features=".length).split(",")).toContain(
+      "SessionRestoreInfobar",
+    );
+  });
+
+  // Chrome's environment is built by hand: with no UTF-8 character type it
+  // saves a download named "résumé.txt" as "download", over the last one.
+  test("gives Chrome a UTF-8 character type so that it can write accented file names", async () => {
+    await launch();
+
+    expect(vi.mocked(puppeteer.launch).mock.calls[0][0]!.env).toMatchObject({
+      LC_CTYPE: "C.UTF-8",
+    });
+  });
+
+  test("keeps what the profile already holds and lets the session's own preferences win", async () => {
+    await mkdir(path.join(profile, "Default"));
+    await writeFile(
+      path.join(profile, "Default", "Preferences"),
+      JSON.stringify({ session: { restore_on_startup: 1 }, intl: { accept_languages: "fr" } }),
+    );
+
+    await launch();
+    expect(await preferences()).toEqual({
+      session: { restore_on_startup: 5 },
+      intl: { accept_languages: "fr" },
+    });
+
+    await launch({ userPreferences: { session: { restore_on_startup: 1 } } });
+    expect((await preferences()).session).toEqual({ restore_on_startup: 1 });
   });
 });
 

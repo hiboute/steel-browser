@@ -226,6 +226,11 @@ export class WorkflowService {
     );
     return task;
   }
+  /** A review of a proposed submission is waiting for a person in this session. */
+  hasPendingReview(sessionId: string): boolean {
+    for (const hold of this.reviewHolds.values()) if (hold.sessionId === sessionId) return true;
+    return false;
+  }
   private holdReview(review: ReviewRecord, sessionId: string) {
     if (this.reviewHolds.has(review.id) || review.status !== "pending") return;
     const milliseconds = Date.parse(review.expiresAt) - this.now().getTime();

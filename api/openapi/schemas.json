@@ -613,8 +613,27 @@
             "type": "boolean"
           },
           "blockAds": {
-            "description": "Flag to indicate if ads should be blocked in the session",
+            "description": "Refuse requests to known ad, analytics and tracker hosts, for this session only. The document the session navigates to always loads.",
             "type": "boolean"
+          },
+          "saveData": {
+            "description": "Skip images, media and fonts, for this session only. Shorthand for optimizeBandwidth with blockImages, blockMedia and blockFonts.",
+            "type": "boolean"
+          },
+          "autoConsent": {
+            "description": "Dismiss cookie consent banners of known consent managers. \"reject\" (or true) clicks the reject button and leaves a banner that only offers accept; \"accept\" still prefers reject and accepts when rejecting is not offered.",
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "reject",
+                  "accept"
+                ]
+              }
+            ]
           },
           "optimizeBandwidth": {
             "description": "Enable bandwidth optimizations. Passing true enables all flags (except hosts/patterns). Object allows granular control.",
@@ -629,6 +648,9 @@
                     "type": "boolean"
                   },
                   "blockMedia": {
+                    "type": "boolean"
+                  },
+                  "blockFonts": {
                     "type": "boolean"
                   },
                   "blockStylesheets": {
@@ -949,6 +971,108 @@
           "handoff": {
             "nullable": true
           },
+          "pageFilters": {
+            "type": "object",
+            "properties": {
+              "blockAds": {
+                "type": "boolean"
+              },
+              "saveData": {
+                "type": "boolean"
+              },
+              "autoConsent": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "reject",
+                  "accept"
+                ]
+              },
+              "requestsBlocked": {
+                "type": "integer",
+                "description": "Requests refused so far, all reasons together"
+              },
+              "blocked": {
+                "type": "object",
+                "properties": {
+                  "ads": {
+                    "type": "integer"
+                  },
+                  "rules": {
+                    "type": "integer"
+                  },
+                  "images": {
+                    "type": "integer"
+                  },
+                  "media": {
+                    "type": "integer"
+                  },
+                  "fonts": {
+                    "type": "integer"
+                  },
+                  "stylesheets": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "ads",
+                  "rules",
+                  "images",
+                  "media",
+                  "fonts",
+                  "stylesheets"
+                ],
+                "additionalProperties": false
+              },
+              "bannersDismissed": {
+                "type": "integer",
+                "description": "Consent banners that went away after their button was clicked"
+              },
+              "lastBanner": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "manager": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "reject",
+                      "accept"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "at",
+                  "manager",
+                  "action",
+                  "label",
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "blockAds",
+              "saveData",
+              "autoConsent",
+              "requestsBlocked",
+              "blocked",
+              "bannersDismissed"
+            ],
+            "description": "What the session filters and dismisses, with its counters",
+            "additionalProperties": false
+          },
           "tabs": {
             "type": "array",
             "items": {
@@ -1201,6 +1325,108 @@
                 },
                 "handoff": {
                   "nullable": true
+                },
+                "pageFilters": {
+                  "type": "object",
+                  "properties": {
+                    "blockAds": {
+                      "type": "boolean"
+                    },
+                    "saveData": {
+                      "type": "boolean"
+                    },
+                    "autoConsent": {
+                      "type": "string",
+                      "enum": [
+                        "off",
+                        "reject",
+                        "accept"
+                      ]
+                    },
+                    "requestsBlocked": {
+                      "type": "integer",
+                      "description": "Requests refused so far, all reasons together"
+                    },
+                    "blocked": {
+                      "type": "object",
+                      "properties": {
+                        "ads": {
+                          "type": "integer"
+                        },
+                        "rules": {
+                          "type": "integer"
+                        },
+                        "images": {
+                          "type": "integer"
+                        },
+                        "media": {
+                          "type": "integer"
+                        },
+                        "fonts": {
+                          "type": "integer"
+                        },
+                        "stylesheets": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "ads",
+                        "rules",
+                        "images",
+                        "media",
+                        "fonts",
+                        "stylesheets"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "bannersDismissed": {
+                      "type": "integer",
+                      "description": "Consent banners that went away after their button was clicked"
+                    },
+                    "lastBanner": {
+                      "type": "object",
+                      "properties": {
+                        "at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "manager": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "reject",
+                            "accept"
+                          ]
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "at",
+                        "manager",
+                        "action",
+                        "label",
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "blockAds",
+                    "saveData",
+                    "autoConsent",
+                    "requestsBlocked",
+                    "blocked",
+                    "bannersDismissed"
+                  ],
+                  "description": "What the session filters and dismisses, with its counters",
+                  "additionalProperties": false
                 },
                 "tabs": {
                   "type": "array",
@@ -1694,6 +1920,108 @@
           },
           "handoff": {
             "nullable": true
+          },
+          "pageFilters": {
+            "type": "object",
+            "properties": {
+              "blockAds": {
+                "type": "boolean"
+              },
+              "saveData": {
+                "type": "boolean"
+              },
+              "autoConsent": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "reject",
+                  "accept"
+                ]
+              },
+              "requestsBlocked": {
+                "type": "integer",
+                "description": "Requests refused so far, all reasons together"
+              },
+              "blocked": {
+                "type": "object",
+                "properties": {
+                  "ads": {
+                    "type": "integer"
+                  },
+                  "rules": {
+                    "type": "integer"
+                  },
+                  "images": {
+                    "type": "integer"
+                  },
+                  "media": {
+                    "type": "integer"
+                  },
+                  "fonts": {
+                    "type": "integer"
+                  },
+                  "stylesheets": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "ads",
+                  "rules",
+                  "images",
+                  "media",
+                  "fonts",
+                  "stylesheets"
+                ],
+                "additionalProperties": false
+              },
+              "bannersDismissed": {
+                "type": "integer",
+                "description": "Consent banners that went away after their button was clicked"
+              },
+              "lastBanner": {
+                "type": "object",
+                "properties": {
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "manager": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "reject",
+                      "accept"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "at",
+                  "manager",
+                  "action",
+                  "label",
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "blockAds",
+              "saveData",
+              "autoConsent",
+              "requestsBlocked",
+              "blocked",
+              "bannersDismissed"
+            ],
+            "description": "What the session filters and dismisses, with its counters",
+            "additionalProperties": false
           },
           "tabs": {
             "type": "array",
@@ -17462,6 +17790,19 @@
         }
       }
     },
+    "/v1/commands/schema": {
+      "get": {
+        "operationId": "get_commands_schema_static",
+        "tags": [
+          "Commands"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/v1/sessions/{id}/control": {
       "get": {
         "operationId": "get_browser_control",
@@ -17880,6 +18221,32 @@
             "name": "id",
             "required": true
           }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/storage": {
+      "get": {
+        "operationId": "get_storage_usage",
+        "tags": [
+          "Browser Work Platform"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/storage/prune": {
+      "post": {
+        "operationId": "prune_storage",
+        "tags": [
+          "Browser Work Platform"
         ],
         "responses": {
           "200": {
@@ -19757,6 +20124,69 @@
             "name": "id",
             "required": true
           }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/hard-sites": {
+      "get": {
+        "operationId": "list_hard_sites",
+        "tags": [
+          "Identity and compatibility"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "forget_hard_site",
+        "tags": [
+          "Identity and compatibility"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/hard-sites/advice": {
+      "get": {
+        "operationId": "get_hard_site_advice",
+        "tags": [
+          "Identity and compatibility"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/identity/scorecards": {
+      "get": {
+        "operationId": "list_stealth_scorecards",
+        "tags": [
+          "Identity and compatibility"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/v1/identity/scorecard/run": {
+      "post": {
+        "operationId": "run_stealth_scorecard",
+        "tags": [
+          "Identity and compatibility"
         ],
         "responses": {
           "200": {

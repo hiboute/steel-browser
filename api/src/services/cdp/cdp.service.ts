@@ -96,6 +96,9 @@ const LAUNCH_TIMEOUT_MS = 60_000;
  */
 const BASE_PROFILE_PREFERENCES = { session: { restore_on_startup: 5 } };
 
+/** A transparent 1x1 GIF, what a page gets in place of an image that is skipped. */
+const EMPTY_IMAGE_BASE64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
 export class CDPService extends EventEmitter {
   private logger: FastifyBaseLogger;
   private keepAlive: boolean;
@@ -623,11 +626,27 @@ export class CDPService extends EventEmitter {
     try {
       if (reason) {
         this.logger.debug(`[CDPService] Blocked request (${reason}): ${url}`);
-        // The page sees what an ad blocker produces: net::ERR_BLOCKED_BY_CLIENT.
-        await session.send("Fetch.failRequest", {
-          requestId: event.requestId,
-          errorReason: "BlockedByClient",
-        });
+        if (reason === "images") {
+          // A skipped image is answered with an empty one, not refused: pages
+          // that swap in a placeholder on error ask for it again on every
+          // refusal, thousands of times a minute, and never finish loading.
+          await session.send("Fetch.fulfillRequest", {
+            requestId: event.requestId,
+            responseCode: 200,
+            responseHeaders: [
+              { name: "content-type", value: "image/gif" },
+              { name: "cache-control", value: "max-age=3600" },
+              { name: "access-control-allow-origin", value: "*" },
+            ],
+            body: EMPTY_IMAGE_BASE64,
+          });
+        } else {
+          // The page sees what an ad blocker produces: net::ERR_BLOCKED_BY_CLIENT.
+          await session.send("Fetch.failRequest", {
+            requestId: event.requestId,
+            errorReason: "BlockedByClient",
+          });
+        }
         try {
           onBlocked?.(reason, url);
         } catch (error) {

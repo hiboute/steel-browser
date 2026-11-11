@@ -53,7 +53,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await app.close();
-  await rm(dir, { recursive: true, force: true });
+  await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   vi.clearAllMocks();
 });
 const headers = { authorization: "Bearer operator" };

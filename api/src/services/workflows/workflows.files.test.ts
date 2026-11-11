@@ -35,8 +35,12 @@ beforeEach(async () => {
     isParked: () => false,
     holdActivity: () => () => {},
   } as unknown as SessionService;
-  runs = new RunService(store, sessions, {} as SessionCommands, control, (type, data, id) =>
-    events.publish(type, data, id),
+  runs = new RunService(
+    store,
+    sessions,
+    { reset: () => {} } as unknown as SessionCommands,
+    control,
+    (type, data, id) => events.publish(type, data, id),
   );
   const records = new DataRecords(store, 30, (actor, id) => {
     if (!control.canRead(id, actor)) throw new DataError("not_found", "Source unavailable", 404);

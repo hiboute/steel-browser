@@ -92,6 +92,11 @@ describe.skipIf(!chrome)("CDPService request filter in a real browser", () => {
       } else if (url.startsWith("/font.woff2")) {
         res.writeHead(200, { "content-type": "font/woff2" });
         res.end(Buffer.alloc(32));
+      } else if (url.startsWith("/retry")) {
+        // What some sites do: on error, ask for a placeholder, again and again.
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<!doctype html><title>retry</title><script>window.errors_ = 0</script>
+          <img src="/pic.png" onerror="window.errors_++; if (window.errors_ < 50) this.src = '/pic.png?again=' + window.errors_">`);
       } else {
         res.writeHead(200, { "content-type": "text/html" });
         res.end(`<!doctype html><title>${host}</title>
@@ -196,7 +201,8 @@ describe.skipIf(!chrome)("CDPService request filter in a real browser", () => {
     expect(await state(page)).toEqual({
       tracker: "loaded",
       app: "loaded",
-      image: 0,
+      // The empty image that stands in for the skipped one.
+      image: 1,
       color: "rgb(1, 2, 3)",
     });
     expect(requests).not.toContain("localhost/pic.png");
@@ -205,11 +211,20 @@ describe.skipIf(!chrome)("CDPService request filter in a real browser", () => {
     expect(blocked.map(([kind]) => kind).sort()).toEqual(["fonts", "images"]);
   }, 60000);
 
+  test("a skipped image is answered, so a page that retries on error does not loop", async () => {
+    const { client, blocked } = await start({ optimizeBandwidth: { blockImages: true } });
+    const page = await open(client, `http://localhost:${port}/retry`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(await page.evaluate(() => (window as any).errors_)).toBe(0);
+    expect(requests.filter((entry) => entry.includes("pic.png"))).toEqual([]);
+    expect(blocked).toEqual([["images", "/pic.png"]]);
+  }, 60000);
+
   test("leaves a browser without options alone, next to one that filters", async () => {
     const filtered = await start({ blockAds: true, optimizeBandwidth: { blockImages: true } });
     const plain = await start();
     const [a, b] = await Promise.all([open(filtered.client), open(plain.client)]);
-    expect(await state(a)).toMatchObject({ tracker: null, image: 0 });
+    expect(await state(a)).toMatchObject({ tracker: null });
     expect(await state(b)).toEqual({
       tracker: "loaded",
       app: "loaded",

@@ -89,4 +89,35 @@ describe.skipIf(!existsSync(getChromeExecutablePath()))("Chrome profile persiste
       })),
     ).toEqual({ value: "yes", initial: "yes" });
   }, 30_000);
+
+  // The idle browser is relaunched on one profile after every release. Chrome
+  // used to reopen the tabs of the previous run each time and add a new one.
+  it("opens a single tab however many times the same profile has been launched", async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), "steel-profile-persistence-"));
+    const downloadPath = path.join(directory, "downloads");
+    await mkdir(downloadPath);
+    const config = {
+      options: {
+        headless: true,
+        args: ["--no-sandbox", "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0"],
+      },
+      userDataDir: path.join(directory, "profile"),
+      downloadPath,
+      timezone: Promise.resolve("UTC"),
+      skipFingerprintInjection: true,
+    };
+    service = new CDPService(
+      { primary: false, cdpPort: 0 },
+      logger as unknown as FastifyBaseLogger,
+      undefined,
+      false,
+    );
+    const counts: number[] = [];
+    for (let run = 0; run < 3; run++) {
+      await service.startNewSession(config);
+      counts.push((await service.getAllPages()).length);
+      await service.endSession(ShutdownReason.SESSION_END, false);
+    }
+    expect(counts).toEqual([1, 1, 1]);
+  }, 60_000);
 });

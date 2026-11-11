@@ -85,6 +85,17 @@ import { TimezoneFetcher } from "../timezone-fetcher.service.js";
 
 const LAUNCH_TIMEOUT_MS = 60_000;
 
+/**
+ * Written to every profile before launch; a session's own `userPreferences` win.
+ *
+ * `session.restore_on_startup: 5` opens the new tab page. A profile that never
+ * chose is treated by recent Chrome (feature SessionRestoreInfobar) as "continue
+ * where you left off": each launch then reopens every tab of the previous run
+ * and adds its own, so the idle browser, which is relaunched on the same profile
+ * after each release, grew by one about:blank per session.
+ */
+const BASE_PROFILE_PREFERENCES = { session: { restore_on_startup: 5 } };
+
 export class CDPService extends EventEmitter {
   private logger: FastifyBaseLogger;
   private keepAlive: boolean;
@@ -1074,7 +1085,7 @@ export class CDPService extends EventEmitter {
           "--remote-allow-origins=*",
           "--disable-dev-shm-usage",
           "--disable-gpu",
-          "--disable-features=TranslateUI,BlinkGenPropertyTrees,LinuxNonClientFrame,PermissionPromptSurvey,IsolateOrigins,site-per-process,TouchpadAndWheelScrollLatching,TrackingProtection3pcd,InterestFeedContentSuggestions,PrivacySandboxSettings4,AutofillServerCommunication,OptimizationHints,MediaRouter,DialMediaRouteProvider,CertificateTransparencyComponentUpdater,GlobalMediaControls,AudioServiceOutOfProcess,LazyFrameLoading,AvoidUnnecessaryBeforeUnloadCheckSync,DisableLoadExtensionCommandLineSwitch,DisableDisableExtensionsExceptCommandLineSwitch",
+          "--disable-features=TranslateUI,BlinkGenPropertyTrees,LinuxNonClientFrame,PermissionPromptSurvey,IsolateOrigins,site-per-process,TouchpadAndWheelScrollLatching,TrackingProtection3pcd,InterestFeedContentSuggestions,PrivacySandboxSettings4,AutofillServerCommunication,OptimizationHints,MediaRouter,DialMediaRouteProvider,CertificateTransparencyComponentUpdater,GlobalMediaControls,AudioServiceOutOfProcess,LazyFrameLoading,AvoidUnnecessaryBeforeUnloadCheckSync,DisableLoadExtensionCommandLineSwitch,DisableDisableExtensionsExceptCommandLineSwitch,SessionRestoreInfobar",
           "--enable-features=Clipboard",
           "--no-default-browser-check",
           "--disable-sync",
@@ -1184,11 +1195,15 @@ export class CDPService extends EventEmitter {
           abandon.signal.throwIfAborted();
         }
 
-        if (userDataDir && this.launchConfig.userPreferences) {
+        if (userDataDir) {
           this.logger.info(`[CDPService] Setting up user preferences in ${userDataDir}`);
           await executeBestEffort(
             this.logger,
-            async () => this.setupUserPreferences(userDataDir, this.launchConfig!.userPreferences!),
+            async () =>
+              this.setupUserPreferences(
+                userDataDir,
+                deepMerge(BASE_PROFILE_PREFERENCES, this.launchConfig!.userPreferences ?? {}),
+              ),
             "Failed to set up user preferences",
           );
         }

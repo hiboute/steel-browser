@@ -562,6 +562,16 @@ describe("CDPService profile preferences", () => {
     );
   });
 
+  // Chrome's environment is built by hand: with no UTF-8 character type it
+  // saves a download named "résumé.txt" as "download", over the last one.
+  test("gives Chrome a UTF-8 character type so that it can write accented file names", async () => {
+    await launch();
+
+    expect(vi.mocked(puppeteer.launch).mock.calls[0][0]!.env).toMatchObject({
+      LC_CTYPE: "C.UTF-8",
+    });
+  });
+
   test("keeps what the profile already holds and lets the session's own preferences win", async () => {
     await mkdir(path.join(profile, "Default"));
     await writeFile(

@@ -1181,6 +1181,10 @@ export class CDPService extends EventEmitter {
           env: {
             HOME: os.userInfo().homedir,
             TZ: timezone,
+            // Without a UTF-8 character type Chrome cannot write a file name
+            // with an accent: it saves every such download as "download",
+            // each one over the last.
+            LC_CTYPE: "C.UTF-8",
             ...(isHeadless ? {} : { DISPLAY: env.DISPLAY }),
           },
           userDataDir,

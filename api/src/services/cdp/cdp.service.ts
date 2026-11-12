@@ -36,6 +36,7 @@ import {
 } from "../../utils/requests.js";
 import {
   createPrivateNetworkCheck,
+  isPrivateAddressSpace,
   parseHostList,
   type PrivateNetworkCheck,
 } from "../../utils/private-network.js";
@@ -118,6 +119,8 @@ export class CDPService extends EventEmitter {
   private primaryPage: Page | null;
   private downloadSettings: CDPSession | null = null;
   private requestFilterSession: CDPSession | null = null;
+  private localNetworkRefused = false;
+  private readonly addressSpaces = new Map<string, string>();
   private launchConfig?: BrowserLauncherOptions;
   private defaultLaunchConfig: BrowserLauncherOptions;
   private currentSessionConfig: BrowserLauncherOptions | null;
@@ -597,13 +600,136 @@ export class CDPService extends EventEmitter {
       ? createPrivateNetworkCheck({ allowHosts: parseHostList(env.PRIVATE_NETWORK_ALLOW_HOSTS) })
       : undefined;
     const session = await this.browserInstance.target().createCDPSession();
+    // Behind a proxy every answer comes from the proxy's address, which says
+    // nothing about the site: the answer check is left out.
+    const checkAnswers = !!privateNetwork && !this.launchConfig?.options?.proxyUrl;
     session.on("Fetch.requestPaused", (event: Protocol.Fetch.RequestPausedEvent) => {
+      if (event.responseStatusCode !== undefined || event.responseErrorReason !== undefined) {
+        void this.handlePausedAnswer(session, event, onBlocked, privateNetwork);
+        return;
+      }
       void this.handlePausedRequest(session, event, filter, onBlocked, privateNetwork);
     });
     await session.send("Fetch.enable", {
-      patterns: [{ urlPattern: "*", requestStage: "Request" }],
+      patterns: [
+        { urlPattern: "*", requestStage: "Request" },
+        ...(checkAnswers
+          ? [
+              {
+                urlPattern: "*",
+                resourceType: "Document" as const,
+                requestStage: "Response" as const,
+              },
+            ]
+          : []),
+      ],
     });
     this.requestFilterSession = session;
+    if (checkAnswers) await this.watchAddressSpaces(session);
+    await this.refuseLocalNetworkPermission(session, !!privateNetwork);
+  }
+
+  /**
+   * Chrome asks the user before a public page reaches a private address, and
+   * judges by the address it really connected to. A guarded session answers
+   * no for every site, so fetches, images, frames and WebSockets of a public
+   * page stop there even when a name changed its address after Steel looked it
+   * up. A proxied session is not covered: Chrome only sees the proxy.
+   */
+  private async refuseLocalNetworkPermission(session: CDPSession, refuse: boolean): Promise<void> {
+    if (!refuse && !this.localNetworkRefused) return;
+    this.localNetworkRefused = refuse;
+    // Chrome's names for it changed over its versions; an unknown one is refused by Chrome.
+    for (const name of ["local-network-access", "local-network", "loopback-network"]) {
+      await session
+        .send("Browser.setPermission", {
+          permission: { name },
+          setting: refuse ? "denied" : "prompt",
+        })
+        .catch((error) => {
+          this.logger.debug({ err: error }, `[CDPService] Could not set the ${name} permission`);
+        });
+    }
+  }
+
+  /**
+   * Remembers the address space Chrome reports for each answer a page
+   * receives. Every page is attached to before it runs, so the first document
+   * of a tab that a client creates and navigates in one go is seen too.
+   */
+  private async watchAddressSpaces(session: CDPSession): Promise<void> {
+    session.on("Target.attachedToTarget", (event: Protocol.Target.AttachedToTargetEvent) => {
+      const child = session.connection()?.session(event.sessionId);
+      if (!child) return;
+      child.on(
+        "Network.responseReceivedExtraInfo",
+        (info: Protocol.Network.ResponseReceivedExtraInfoEvent) => {
+          if (this.addressSpaces.size >= 2000) {
+            const oldest = this.addressSpaces.keys().next().value;
+            if (oldest !== undefined) this.addressSpaces.delete(oldest);
+          }
+          this.addressSpaces.set(info.requestId, info.resourceIPAddressSpace);
+        },
+      );
+      void child
+        .send("Network.enable")
+        .catch((error) => {
+          this.logger.debug({ err: error }, "[CDPService] Could not watch a page's answers");
+        })
+        // The page waits for this, whatever happened above.
+        .then(() => child.send("Runtime.runIfWaitingForDebugger"))
+        .catch(() => {});
+    });
+    await session.send("Target.setAutoAttach", {
+      autoAttach: true,
+      waitForDebuggerOnStart: true,
+      flatten: true,
+      filter: [{ type: "page" }],
+    });
+  }
+
+  /**
+   * A document's answer is held here before the page gets it. A name can be
+   * public when Steel looks it up and private when Chrome connects (DNS
+   * rebinding): the address Chrome reports for the answer settles it.
+   */
+  private async handlePausedAnswer(
+    session: CDPSession,
+    event: Protocol.Fetch.RequestPausedEvent,
+    onBlocked?: (kind: BlockKind, url: string) => void,
+    privateNetwork?: PrivateNetworkCheck,
+  ) {
+    const url = event.request.url;
+    try {
+      let refuse = false;
+      if (privateNetwork && event.networkId && !privateNetwork.exempt(url)) {
+        let space = this.addressSpaces.get(event.networkId);
+        // The report comes on another connection than the pause: give it a moment.
+        for (let waited = 0; space === undefined && waited < 300; waited += 25) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          space = this.addressSpaces.get(event.networkId);
+        }
+        this.addressSpaces.delete(event.networkId);
+        refuse = isPrivateAddressSpace(space);
+      }
+      if (refuse) {
+        this.logger.debug(`[CDPService] Blocked answer from a private address: ${url}`);
+        await session.send("Fetch.failRequest", {
+          requestId: event.requestId,
+          errorReason: "BlockedByClient",
+        });
+        try {
+          onBlocked?.("private", url);
+        } catch (error) {
+          this.logger.debug({ err: error }, "[CDPService] Blocked request observer failed");
+        }
+      } else {
+        await session.send("Fetch.continueRequest", { requestId: event.requestId });
+      }
+    } catch (error) {
+      if (isTargetClosedError(error)) return;
+      this.logger.debug({ err: error }, `[CDPService] Could not resolve held answer ${url}`);
+    }
   }
 
   private async handlePausedRequest(

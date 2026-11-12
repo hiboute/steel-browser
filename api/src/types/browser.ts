@@ -42,6 +42,8 @@ export interface BrowserLauncherOptions {
   extensions?: string[];
   logSinkUrl?: string;
   blockAds?: boolean;
+  /** Refuse every request to a private, loopback, link-local or reserved address. */
+  blockPrivateNetwork?: boolean;
   /** Told about every request the session's filters refuse, with the reason. */
   onRequestBlocked?: (kind: BlockKind, url: string) => void;
   fingerprint?: BrowserFingerprintWithHeaders;

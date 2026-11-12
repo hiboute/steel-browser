@@ -34,6 +34,11 @@ import {
   type BlockKind,
   type RequestFilter,
 } from "../../utils/requests.js";
+import {
+  createPrivateNetworkCheck,
+  parseHostList,
+  type PrivateNetworkCheck,
+} from "../../utils/private-network.js";
 import { filterHeaders, getChromeExecutablePath, installMouseHelper } from "../../utils/browser.js";
 import {
   deepMerge,
@@ -537,7 +542,11 @@ export class CDPService extends EventEmitter {
   }
 
   private requiresRequestInterception(): boolean {
-    if (this.launchConfig?.blockAds || this.compiledUrlPatterns.length > 0) {
+    if (
+      this.launchConfig?.blockAds ||
+      this.launchConfig?.blockPrivateNetwork ||
+      this.compiledUrlPatterns.length > 0
+    ) {
       return true;
     }
 
@@ -584,9 +593,12 @@ export class CDPService extends EventEmitter {
       stylesheets: !!flags?.blockStylesheets,
     };
     const onBlocked = this.launchConfig?.onRequestBlocked;
+    const privateNetwork = this.launchConfig?.blockPrivateNetwork
+      ? createPrivateNetworkCheck({ allowHosts: parseHostList(env.PRIVATE_NETWORK_ALLOW_HOSTS) })
+      : undefined;
     const session = await this.browserInstance.target().createCDPSession();
     session.on("Fetch.requestPaused", (event: Protocol.Fetch.RequestPausedEvent) => {
-      void this.handlePausedRequest(session, event, filter, onBlocked);
+      void this.handlePausedRequest(session, event, filter, onBlocked, privateNetwork);
     });
     await session.send("Fetch.enable", {
       patterns: [{ urlPattern: "*", requestStage: "Request" }],
@@ -599,9 +611,25 @@ export class CDPService extends EventEmitter {
     event: Protocol.Fetch.RequestPausedEvent,
     filter: RequestFilter,
     onBlocked?: (kind: BlockKind, url: string) => void,
+    privateNetwork?: PrivateNetworkCheck,
   ) {
     const url = event.request.url;
     let reason: BlockKind | undefined;
+    try {
+      // Every request, the document a tab navigates to included: a popup's
+      // first request and each hop of a redirect are paused here like the rest.
+      // The session's own extensions keep talking to the API beside the browser.
+      const origin = event.request.headers?.Origin ?? event.request.headers?.origin ?? "";
+      if (
+        privateNetwork &&
+        !origin.startsWith("chrome-extension://") &&
+        (await privateNetwork(url))
+      )
+        reason = "private";
+    } catch (error) {
+      this.logger.debug({ err: error }, `[CDPService] Could not check the address of ${url}`);
+      reason = "private";
+    }
     try {
       const resourceType = (event.resourceType ?? "Other").toLowerCase();
       // A page target carries the id of its main frame.
@@ -609,7 +637,7 @@ export class CDPService extends EventEmitter {
         ?.targets()
         .find((target) => target.type() === "page" && this.getTargetIdOf(target) === event.frameId);
       const headers = event.request.headers ?? {};
-      reason = blockReason(
+      reason ??= blockReason(
         {
           url,
           resourceType,

@@ -23,7 +23,7 @@ export interface NavigationPolicy {
   assertUrl(url: string): Promise<string>;
   throwIfBlocked(): void;
 }
-const prohibitedNames = new Set([
+export const prohibitedNames = new Set([
   "localhost",
   "metadata",
   "metadata.google.internal",

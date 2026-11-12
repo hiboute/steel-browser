@@ -616,6 +616,10 @@
             "description": "Refuse requests to known ad, analytics and tracker hosts, for this session only. The document the session navigates to always loads.",
             "type": "boolean"
           },
+          "blockPrivateNetwork": {
+            "description": "Refuse every request the browser makes to a private, loopback, link-local or reserved address, for this session only: navigations, redirect hops, popups and subresources alike.",
+            "type": "boolean"
+          },
           "saveData": {
             "description": "Skip images, media and fonts, for this session only. Shorthand for optimizeBandwidth with blockImages, blockMedia and blockFonts.",
             "type": "boolean"
@@ -977,6 +981,9 @@
               "blockAds": {
                 "type": "boolean"
               },
+              "blockPrivateNetwork": {
+                "type": "boolean"
+              },
               "saveData": {
                 "type": "boolean"
               },
@@ -1012,6 +1019,9 @@
                   },
                   "stylesheets": {
                     "type": "integer"
+                  },
+                  "private": {
+                    "type": "integer"
                   }
                 },
                 "required": [
@@ -1020,7 +1030,8 @@
                   "images",
                   "media",
                   "fonts",
-                  "stylesheets"
+                  "stylesheets",
+                  "private"
                 ],
                 "additionalProperties": false
               },
@@ -1064,6 +1075,7 @@
             },
             "required": [
               "blockAds",
+              "blockPrivateNetwork",
               "saveData",
               "autoConsent",
               "requestsBlocked",
@@ -1332,6 +1344,9 @@
                     "blockAds": {
                       "type": "boolean"
                     },
+                    "blockPrivateNetwork": {
+                      "type": "boolean"
+                    },
                     "saveData": {
                       "type": "boolean"
                     },
@@ -1367,6 +1382,9 @@
                         },
                         "stylesheets": {
                           "type": "integer"
+                        },
+                        "private": {
+                          "type": "integer"
                         }
                       },
                       "required": [
@@ -1375,7 +1393,8 @@
                         "images",
                         "media",
                         "fonts",
-                        "stylesheets"
+                        "stylesheets",
+                        "private"
                       ],
                       "additionalProperties": false
                     },
@@ -1419,6 +1438,7 @@
                   },
                   "required": [
                     "blockAds",
+                    "blockPrivateNetwork",
                     "saveData",
                     "autoConsent",
                     "requestsBlocked",
@@ -1927,6 +1947,9 @@
               "blockAds": {
                 "type": "boolean"
               },
+              "blockPrivateNetwork": {
+                "type": "boolean"
+              },
               "saveData": {
                 "type": "boolean"
               },
@@ -1962,6 +1985,9 @@
                   },
                   "stylesheets": {
                     "type": "integer"
+                  },
+                  "private": {
+                    "type": "integer"
                   }
                 },
                 "required": [
@@ -1970,7 +1996,8 @@
                   "images",
                   "media",
                   "fonts",
-                  "stylesheets"
+                  "stylesheets",
+                  "private"
                 ],
                 "additionalProperties": false
               },
@@ -2014,6 +2041,7 @@
             },
             "required": [
               "blockAds",
+              "blockPrivateNetwork",
               "saveData",
               "autoConsent",
               "requestsBlocked",
@@ -26475,7 +26503,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:3000/",
+      "url": "http://localhost:3917/",
       "description": "Local server"
     }
   ]

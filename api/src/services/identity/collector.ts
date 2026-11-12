@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Browser, Page } from "puppeteer-core";
+import { trustOwnUrlPrefix } from "../../utils/private-network.js";
 
 export type Check = { name: string; status: "pass" | "fail" | "untested"; detail?: string };
 const allowedHeaders = [
@@ -18,6 +19,7 @@ export class IdentityCollector {
   private server?: Server;
   private starting?: Promise<string>;
   private origin?: string;
+  private untrust: Array<() => void> = [];
   private readonly nonce = randomBytes(24).toString("hex");
   async start(): Promise<string> {
     if (this.origin) return this.origin;
@@ -104,6 +106,11 @@ export class IdentityCollector {
         if (!address || typeof address === "string")
           return reject(new Error("Collector failed to bind"));
         this.origin = `http://127.0.0.1:${address.port}/${this.nonce}/`;
+        // A session that refuses private addresses still opens this fixture,
+        // under either name of the loopback address.
+        this.untrust = [this.origin, `http://localhost:${address.port}/${this.nonce}/`].map(
+          trustOwnUrlPrefix,
+        );
         resolve(this.origin);
       });
     });
@@ -115,6 +122,7 @@ export class IdentityCollector {
       this.server.closeAllConnections();
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
     }
+    for (const forget of this.untrust.splice(0)) forget();
     this.origin = undefined;
     this.starting = undefined;
   }

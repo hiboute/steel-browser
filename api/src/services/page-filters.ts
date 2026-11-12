@@ -10,6 +10,7 @@ export type AutoConsentOption = boolean | "reject" | "accept";
  */
 export interface PageFilters {
   blockAds: boolean;
+  blockPrivateNetwork: boolean;
   saveData: boolean;
   autoConsent: AutoConsentMode;
   /** Requests refused so far, all reasons together. */
@@ -43,7 +44,12 @@ export function applySaveData(
 }
 
 export function createPageFilters(
-  options: { blockAds?: boolean; saveData?: boolean; autoConsent?: AutoConsentOption },
+  options: {
+    blockAds?: boolean;
+    blockPrivateNetwork?: boolean;
+    saveData?: boolean;
+    autoConsent?: AutoConsentOption;
+  },
   previous?: Partial<PageFilters>,
 ): PageFilters {
   const blocked = {
@@ -53,10 +59,12 @@ export function createPageFilters(
     media: 0,
     fonts: 0,
     stylesheets: 0,
+    private: 0,
     ...(previous?.blocked ?? {}),
   };
   return {
     blockAds: !!options.blockAds,
+    blockPrivateNetwork: !!options.blockPrivateNetwork,
     saveData: !!options.saveData,
     autoConsent: normalizeAutoConsent(options.autoConsent),
     requestsBlocked: previous?.requestsBlocked ?? 0,

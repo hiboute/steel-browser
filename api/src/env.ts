@@ -25,6 +25,8 @@ const envSchema = z.object({
     .pipe(z.record(z.string(), z.string()).optional().default({})),
   BLOCK_ADS_EXTRA_HOSTS: z.string().optional(),
   BLOCK_ADS_ALLOW_HOSTS: z.string().optional(),
+  // Hosts a session with blockPrivateNetwork may still reach, comma separated.
+  PRIVATE_NETWORK_ALLOW_HOSTS: z.string().optional(),
   KILL_TIMEOUT: z.string().optional().default("0"),
   CHROME_EXECUTABLE_PATH: z.string().optional(),
   CHROME_HEADLESS: z

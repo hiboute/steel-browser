@@ -77,10 +77,11 @@ describe("page filter counters", () => {
   it("starts at zero with the options that are on", () => {
     expect(createPageFilters({})).toEqual({
       blockAds: false,
+      blockPrivateNetwork: false,
       saveData: false,
       autoConsent: "off",
       requestsBlocked: 0,
-      blocked: { ads: 0, rules: 0, images: 0, media: 0, fonts: 0, stylesheets: 0 },
+      blocked: { ads: 0, rules: 0, images: 0, media: 0, fonts: 0, stylesheets: 0, private: 0 },
       bannersDismissed: 0,
     });
     expect(createPageFilters({ blockAds: true, saveData: true, autoConsent: true })).toMatchObject({

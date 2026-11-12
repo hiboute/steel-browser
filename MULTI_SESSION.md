@@ -74,6 +74,9 @@ implemented work from deployment verification.
   skip images, media and fonts, and dismiss cookie consent banners, for that
   session only. Session details report what is on and the counters as
   `pageFilters`. See the operator guide, "Lighter pages".
+- `blockPrivateNetwork` on creation makes the session's browser refuse every
+  request to a private, loopback, link-local or reserved address, redirect hops
+  and popups included. See the operator guide, "Private network guard".
 
 ## Cookie library
 

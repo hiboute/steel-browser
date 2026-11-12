@@ -11,6 +11,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vite
 // "tracker" can be served by the fixture below.
 vi.hoisted(() => {
   process.env.BLOCK_ADS_EXTRA_HOSTS = "tracker.localhost";
+  // The fixture is on the loopback address: this name plays the public site.
+  process.env.PRIVATE_NETWORK_ALLOW_HOSTS = "public.localhost";
 });
 
 import type { BrowserLauncherOptions } from "../../types/browser.js";
@@ -92,6 +94,15 @@ describe.skipIf(!chrome)("CDPService request filter in a real browser", () => {
       } else if (url.startsWith("/font.woff2")) {
         res.writeHead(200, { "content-type": "font/woff2" });
         res.end(Buffer.alloc(32));
+      } else if (url.startsWith("/hop")) {
+        res.writeHead(302, { location: `http://127.0.0.1:${port}/secret` });
+        res.end();
+      } else if (url.startsWith("/secret")) {
+        res.writeHead(200, { "content-type": "text/html", "access-control-allow-origin": "*" });
+        res.end("<!doctype html><title>secret</title>internal");
+      } else if (url.startsWith("/plain")) {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<!doctype html><title>plain</title><h1>Plain</h1>");
       } else if (url.startsWith("/retry")) {
         // What some sites do: on error, ask for a placeholder, again and again.
         res.writeHead(200, { "content-type": "text/html" });
@@ -218,6 +229,60 @@ describe.skipIf(!chrome)("CDPService request filter in a real browser", () => {
     expect(await page.evaluate(() => (window as any).errors_)).toBe(0);
     expect(requests.filter((entry) => entry.includes("pic.png"))).toEqual([]);
     expect(blocked).toEqual([["images", "/pic.png"]]);
+  }, 60000);
+
+  test("blockPrivateNetwork refuses a private address a page asks for", async () => {
+    const { client, blocked } = await start({ blockPrivateNetwork: true });
+    const page = await open(client, `http://public.localhost:${port}/plain`);
+    expect(await page.title()).toBe("plain");
+    const outcome = await page.evaluate(
+      (target) =>
+        fetch(target).then(
+          (response) => `answered ${response.status}`,
+          () => "refused",
+        ),
+      `http://127.0.0.1:${port}/secret`,
+    );
+    expect(outcome).toBe("refused");
+    expect(requests).not.toContain("127.0.0.1/secret");
+    expect(blocked).toEqual([["private", "/secret"]]);
+  }, 60000);
+
+  test("blockPrivateNetwork refuses a navigation and the hop of a redirect", async () => {
+    const { client, blocked } = await start({ blockPrivateNetwork: true });
+    const page = await client.newPage();
+    await expect(page.goto(`http://127.0.0.1:${port}/secret`)).rejects.toThrow(
+      /ERR_BLOCKED_BY_CLIENT/,
+    );
+    await expect(page.goto(`http://public.localhost:${port}/hop`)).rejects.toThrow(
+      /ERR_BLOCKED_BY_CLIENT/,
+    );
+    expect(requests).toContain("public.localhost/hop");
+    expect(requests).not.toContain("127.0.0.1/secret");
+    expect(blocked).toEqual([
+      ["private", "/secret"],
+      ["private", "/secret"],
+    ]);
+  }, 60000);
+
+  test("blockPrivateNetwork refuses the first request of a popup", async () => {
+    const { client, blocked } = await start({ blockPrivateNetwork: true });
+    const page = await open(client, `http://public.localhost:${port}/plain`);
+    const popup = new Promise<void>((resolve) => client.once("targetcreated", () => resolve()));
+    await page.evaluate((target) => {
+      window.open(target, "_blank");
+    }, `http://127.0.0.1:${port}/secret`);
+    await popup;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(requests).not.toContain("127.0.0.1/secret");
+    expect(blocked).toEqual([["private", "/secret"]]);
+  }, 60000);
+
+  test("a session without blockPrivateNetwork still reaches private addresses", async () => {
+    const { client, blocked } = await start({ blockAds: true });
+    const page = await open(client, `http://public.localhost:${port}/hop`);
+    expect(await page.title()).toBe("secret");
+    expect(blocked).toEqual([]);
   }, 60000);
 
   test("leaves a browser without options alone, next to one that filters", async () => {

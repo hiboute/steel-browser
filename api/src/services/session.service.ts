@@ -145,6 +145,8 @@ export interface StartSessionOptions {
   /** Saved browser: a named persistent Chrome profile under BROWSER_PROFILES_DIR. */
   browserProfile?: string;
   blockAds?: boolean;
+  /** Refuse requests to private, loopback, link-local and reserved addresses. */
+  blockPrivateNetwork?: boolean;
   optimizeBandwidth?: boolean | OptimizeBandwidthOptions;
   /** Skip images, media and fonts. */
   saveData?: boolean;
@@ -543,6 +545,7 @@ export class SessionService {
       dimensions,
       isSelenium,
       blockAds,
+      blockPrivateNetwork,
       optimizeBandwidth,
       extra,
       credentials,
@@ -769,6 +772,7 @@ export class SessionService {
         sessionContext,
         userAgent,
         blockAds,
+        blockPrivateNetwork,
         onRequestBlocked: (kind) => countBlocked(pageFilters, kind),
         fingerprint,
         optimizeBandwidth: normalizedOptimize,

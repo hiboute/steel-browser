@@ -79,7 +79,7 @@ export function isUrlMatchingPatterns(url: string, compiledPatterns?: RegExp[]):
   return compiledPatterns.some((re) => re.test(url));
 }
 
-export type BlockKind = "ads" | "rules" | "images" | "media" | "fonts" | "stylesheets";
+export type BlockKind = "ads" | "rules" | "images" | "media" | "fonts" | "stylesheets" | "private";
 
 export interface RequestFilter {
   /** Matcher of the `blockAds` list, or undefined when ads are not blocked. */

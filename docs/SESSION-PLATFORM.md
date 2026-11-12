@@ -355,6 +355,31 @@ Each click is a timeline entry (`kind: "consent"`, `tool: "consent.reject"` or
 otherwise, `args.manager` and `args.label`) and a `consent.dismissed` or
 `consent.clicked` event.
 
+### Private network guard (`blockPrivateNetwork`)
+
+```json
+{ "blockPrivateNetwork": true }
+```
+
+With this option the session's browser refuses every request to a private,
+loopback, link-local or reserved address (IPv4 and IPv6, IPv4-mapped included),
+to `localhost` names and to cloud metadata names. It uses the same interceptor
+as the request filter, so it sees what a CDP client cannot stop in time: the
+document a tab navigates to, each hop of a redirect, and the first request of a
+popup. The refused request fails with `net::ERR_BLOCKED_BY_CLIENT` and counts
+under `blocked.private`. It is off unless asked for.
+
+- A literal address is judged as written. A name is resolved by the API and
+  refused when any of its addresses is not public; the answer is kept for 30
+  seconds. A name that does not exist goes through (Chrome cannot reach it
+  either); any other resolver failure refuses the request.
+- `PRIVATE_NETWORK_ALLOW_HOSTS` (comma separated, read at start) names hosts or
+  addresses that stay reachable, with their subdomains.
+- Requests of the session's own extensions (the recorder) are not checked.
+- Limits: a name that changes its address between the API's lookup and Chrome's
+  own is not caught, and a session behind an upstream proxy resolves names at
+  the proxy, not here. WebSocket handshakes are not intercepted.
+
 ### What a session reports
 
 Session details (`GET /v1/sessions/:id`, the list, and the create, park, resume
@@ -363,10 +388,11 @@ and release responses) carry `pageFilters`:
 ```json
 {
   "blockAds": true,
+  "blockPrivateNetwork": false,
   "saveData": true,
   "autoConsent": "reject",
   "requestsBlocked": 5,
-  "blocked": {"ads": 1, "rules": 0, "images": 2, "media": 1, "fonts": 1, "stylesheets": 0},
+  "blocked": {"ads": 1, "rules": 0, "images": 2, "media": 1, "fonts": 1, "stylesheets": 0, "private": 0},
   "bannersDismissed": 1,
   "lastBanner": {
     "at": "2026-01-01T10:00:00.000Z",

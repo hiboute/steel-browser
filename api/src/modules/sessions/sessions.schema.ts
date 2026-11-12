@@ -87,6 +87,12 @@ export const CreateSession = SessionSettings.extend({
     .describe(
       "Refuse requests to known ad, analytics and tracker hosts, for this session only. The document the session navigates to always loads.",
     ),
+  blockPrivateNetwork: z
+    .boolean()
+    .optional()
+    .describe(
+      "Refuse every request the browser makes to a private, loopback, link-local or reserved address, for this session only: navigations, redirect hops, popups and subresources alike.",
+    ),
   saveData: z
     .boolean()
     .optional()
@@ -174,6 +180,7 @@ export const CreateSession = SessionSettings.extend({
 const PageFilters = z
   .object({
     blockAds: z.boolean(),
+    blockPrivateNetwork: z.boolean(),
     saveData: z.boolean(),
     autoConsent: z.enum(["off", "reject", "accept"]),
     requestsBlocked: z.number().int().describe("Requests refused so far, all reasons together"),
@@ -184,6 +191,7 @@ const PageFilters = z
       media: z.number().int(),
       fonts: z.number().int(),
       stylesheets: z.number().int(),
+      private: z.number().int(),
     }),
     bannersDismissed: z
       .number()

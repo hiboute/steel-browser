@@ -14,7 +14,21 @@ export interface PrivateNetworkCheckOptions {
 }
 
 /** Says whether a request URL targets a private, loopback, link-local or reserved address. */
-export type PrivateNetworkCheck = (url: string) => Promise<boolean>;
+export type PrivateNetworkCheck = ((url: string) => Promise<boolean>) & {
+  /**
+   * True for a URL the check never refuses whatever its address: not a network
+   * URL, a page the API serves itself, or a host of the allow list.
+   */
+  exempt: (url: string) => boolean;
+};
+
+/** What Chrome calls the address a response came from, when it is not public. */
+const PRIVATE_ADDRESS_SPACES = new Set(["loopback", "local", "private"]);
+
+/** Reads Chrome's `resourceIPAddressSpace`: true when the answer came from a private address. */
+export function isPrivateAddressSpace(space: string | undefined): boolean {
+  return PRIVATE_ADDRESS_SPACES.has((space ?? "").toLowerCase());
+}
 
 const MAX_CACHED_NAMES = 500;
 const NETWORK_PROTOCOLS = new Set(["http:", "https:", "ws:", "wss:"]);
@@ -50,7 +64,10 @@ export function parseHostList(raw: string | undefined): string[] {
  * when any of its addresses is not public. A name that does not exist here
  * goes through: the browser cannot reach it either. Any other resolver failure
  * refuses the request. Answers are kept for a short time, so a name that
- * changes its address between this lookup and Chrome's own is not caught.
+ * changes its address between this lookup and Chrome's own is not caught
+ * here: the browser service catches it from the address Chrome reports for
+ * the answer (`isPrivateAddressSpace`) and by refusing Chrome's local network
+ * permission.
  */
 export function createPrivateNetworkCheck(
   options: PrivateNetworkCheckOptions = {},
@@ -83,21 +100,28 @@ export function createPrivateNetworkCheck(
     }
   };
 
-  return async (raw: string): Promise<boolean> => {
+  /** The host to judge, or undefined when the URL is never refused. */
+  const hostToJudge = (raw: string): string | undefined => {
     let url: URL;
     try {
       url = new URL(raw);
     } catch {
-      return false;
+      return undefined;
     }
-    if (!NETWORK_PROTOCOLS.has(url.protocol)) return false;
-    for (const prefix of ownPrefixes) if (url.href.startsWith(prefix)) return false;
+    if (!NETWORK_PROTOCOLS.has(url.protocol)) return undefined;
+    for (const prefix of ownPrefixes) if (url.href.startsWith(prefix)) return undefined;
     const hostname = url.hostname
       .replace(/^\[|\]$/g, "")
       .replace(/\.$/, "")
       .toLowerCase();
+    if (!hostname) return undefined;
+    if (allow.some((host) => hostname === host || hostname.endsWith(`.${host}`))) return undefined;
+    return hostname;
+  };
+
+  const check = async (raw: string): Promise<boolean> => {
+    const hostname = hostToJudge(raw);
     if (!hostname) return false;
-    if (allow.some((host) => hostname === host || hostname.endsWith(`.${host}`))) return false;
     if (prohibitedNames.has(hostname) || hostname.endsWith(".localhost")) return true;
     if (isIP(hostname)) return !isPublicAddress(hostname);
 
@@ -112,4 +136,5 @@ export function createPrivateNetworkCheck(
     cache.set(hostname, { until: at + ttlMs, verdict });
     return verdict;
   };
+  return Object.assign(check, { exempt: (raw: string) => hostToJudge(raw) === undefined });
 }

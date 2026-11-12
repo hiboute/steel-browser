@@ -64,6 +64,9 @@ describe.skipIf(!chrome)("CDPService request filter in a real browser", () => {
   let server: http.Server;
   let port: number;
   let requests: string[] = [];
+  // A second site, which Chrome is told to treat as a public address.
+  let site: http.Server;
+  let sitePort: number;
   const services: CDPService[] = [];
   const clients: Browser[] = [];
 
@@ -118,8 +121,33 @@ describe.skipIf(!chrome)("CDPService request filter in a real browser", () => {
           <h1>Fixture</h1><img src="/pic.png">`);
       }
     });
+    server.on("upgrade", (req, socket) => {
+      requests.push(`${(req.headers.host ?? "").split(":")[0]} upgrade`);
+      socket.destroy();
+    });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     port = (server.address() as AddressInfo).port;
+    site = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<!doctype html><title>site</title><h1>Site</h1>");
+    });
+    await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
+    sitePort = (site.address() as AddressInfo).port;
+  });
+
+  /**
+   * A name that does not exist for Steel and is the loopback address for
+   * Chrome: what a name that changes its address between two lookups looks like.
+   */
+  const rebinding = (extra: string[] = []) => ({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--remote-debugging-address=127.0.0.1",
+      "--remote-debugging-port=0",
+      "--host-resolver-rules=MAP rebind.test 127.0.0.1",
+      ...extra,
+    ],
   });
 
   afterEach(async () => {
@@ -131,6 +159,7 @@ describe.skipIf(!chrome)("CDPService request filter in a real browser", () => {
 
   afterAll(async () => {
     await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => site.close(resolve));
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
@@ -276,6 +305,65 @@ describe.skipIf(!chrome)("CDPService request filter in a real browser", () => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     expect(requests).not.toContain("127.0.0.1/secret");
     expect(blocked).toEqual([["private", "/secret"]]);
+  }, 60000);
+
+  test("blockPrivateNetwork holds back a document that Chrome fetched from a private address", async () => {
+    const { client, blocked } = await start({ blockPrivateNetwork: true, options: rebinding() });
+    const page = await client.newPage();
+    await expect(page.goto(`http://rebind.test:${port}/secret`)).rejects.toThrow(
+      /ERR_BLOCKED_BY_CLIENT/,
+    );
+    // Steel's lookup let the name through; the address Chrome reports refused the answer.
+    expect(requests).toContain("rebind.test/secret");
+    expect(await page.content()).not.toContain("internal");
+    expect(blocked).toEqual([["private", "/secret"]]);
+
+    // A tab that is born on that address.
+    const popup = new Promise<void>((resolve) => client.once("targetcreated", () => resolve()));
+    const opener = await open(client, `http://public.localhost:${port}/plain`);
+    await opener.evaluate((target) => {
+      window.open(target, "_blank");
+    }, `http://rebind.test:${port}/secret`);
+    await popup;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    for (const tab of await client.pages()) expect(await tab.content()).not.toContain("internal");
+    expect(blocked).toEqual([
+      ["private", "/secret"],
+      ["private", "/secret"],
+    ]);
+  }, 60000);
+
+  test("blockPrivateNetwork refuses Chrome's local network permission to public pages", async () => {
+    const { client } = await start({
+      blockPrivateNetwork: true,
+      options: rebinding([`--ip-address-space-overrides=127.0.0.1:${sitePort}=public`]),
+    });
+    const page = await open(client, `http://public.localhost:${sitePort}/`);
+    expect(await page.title()).toBe("site");
+    const outcome = await page.evaluate(async (host) => {
+      const permission = await navigator.permissions
+        .query({ name: "local-network-access" as PermissionName })
+        .then(
+          (status) => status.state,
+          () => "unknown",
+        );
+      const fetched = await Promise.race([
+        fetch(`http://${host}/secret`).then(
+          (response) => `answered ${response.status}`,
+          () => "refused",
+        ),
+        new Promise<string>((resolve) => setTimeout(() => resolve("waiting"), 5000)),
+      ]);
+      const socket = await new Promise<string>((resolve) => {
+        const ws = new WebSocket(`ws://${host}/socket`);
+        ws.onopen = () => resolve("open");
+        ws.onerror = () => resolve("refused");
+        setTimeout(() => resolve("waiting"), 5000);
+      });
+      return { permission, fetched, socket };
+    }, `rebind.test:${port}`);
+    expect(outcome).toEqual({ permission: "denied", fetched: "refused", socket: "refused" });
+    expect(requests.filter((entry) => entry.startsWith("rebind.test"))).toEqual([]);
   }, 60000);
 
   test("a session without blockPrivateNetwork still reaches private addresses", async () => {

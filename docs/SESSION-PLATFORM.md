@@ -376,9 +376,20 @@ under `blocked.private`. It is off unless asked for.
 - `PRIVATE_NETWORK_ALLOW_HOSTS` (comma separated, read at start) names hosts or
   addresses that stay reachable, with their subdomains.
 - Requests of the session's own extensions (the recorder) are not checked.
-- Limits: a name that changes its address between the API's lookup and Chrome's
-  own is not caught, and a session behind an upstream proxy resolves names at
-  the proxy, not here. WebSocket handshakes are not intercepted.
+- A name that changes its address between the API's lookup and Chrome's own
+  (DNS rebinding) is caught from the address Chrome really connected to. The
+  answer of a document (a tab, a popup, a frame) is held until Chrome reports
+  where it came from, and refused when that address is not public: the request
+  reached the address, the page never gets the answer. It counts under
+  `blocked.private`.
+- The session also answers no to Chrome's local network permission for every
+  site. Chrome judges by the address it connected to, so a fetch, an image, a
+  frame or a WebSocket that a public page sends to a private address stops in
+  Chrome, before it leaves, whatever the name says. These refusals are Chrome's
+  own and are not counted. A private host of the allow list is reached by
+  navigating to it, not from a public page.
+- Limit: a session behind an upstream proxy resolves names at the proxy, and
+  Chrome only sees the proxy's address, so neither check above applies there.
 
 ### What a session reports
 

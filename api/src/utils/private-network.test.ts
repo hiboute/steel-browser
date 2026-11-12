@@ -1,5 +1,10 @@
 import { describe, expect, test, vi } from "vitest";
-import { createPrivateNetworkCheck, parseHostList, trustOwnUrlPrefix } from "./private-network.js";
+import {
+  createPrivateNetworkCheck,
+  isPrivateAddressSpace,
+  parseHostList,
+  trustOwnUrlPrefix,
+} from "./private-network.js";
 
 const dnsError = (code: string) => Object.assign(new Error(code), { code });
 
@@ -108,5 +113,26 @@ describe("private network check", () => {
     expect(await check("http://127.0.0.1:4011/secretpath/fixture")).toBe(true);
     forget();
     expect(await check("http://127.0.0.1:4010/secretpath/fixture")).toBe(true);
+  });
+
+  test("says which addresses are never refused, without a lookup", () => {
+    const resolve = vi.fn();
+    const check = createPrivateNetworkCheck({ allowHosts: ["intranet.example"], resolve });
+    const forget = trustOwnUrlPrefix("http://127.0.0.1:4010/secretpath/");
+    expect(check.exempt("http://wiki.intranet.example/")).toBe(true);
+    expect(check.exempt("http://127.0.0.1:4010/secretpath/fixture")).toBe(true);
+    expect(check.exempt("about:blank")).toBe(true);
+    expect(check.exempt("not a url")).toBe(true);
+    expect(check.exempt("http://example.com/")).toBe(false);
+    expect(check.exempt("http://127.0.0.1:4010/other")).toBe(false);
+    forget();
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  test("reads the address space Chrome reports for an answer", () => {
+    for (const space of ["Loopback", "Local", "Private", "local"])
+      expect(isPrivateAddressSpace(space)).toBe(true);
+    for (const space of ["Public", "Unknown", "", undefined])
+      expect(isPrivateAddressSpace(space)).toBe(false);
   });
 });

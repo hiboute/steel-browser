@@ -117,6 +117,22 @@ describe("guarded CDP transport", () => {
     }
     expect(s.received).toEqual([]);
   });
+  it("answers a refused command on the target session it was sent on", async () => {
+    const s = await setup();
+    const client = s.connect("/observer");
+    await open(client);
+    const onPage = message(client);
+    client.send(JSON.stringify({ id: 7, sessionId: "page-1", method: "Runtime.evaluate" }));
+    // Without the sessionId, Playwright gets the reply on the browser session and its driver aborts.
+    expect(await onPage).toEqual({
+      id: 7,
+      sessionId: "page-1",
+      error: { code: -32000, message: "Current browser control is required" },
+    });
+    const onBrowser = message(client);
+    client.send(JSON.stringify({ id: 8, method: "Runtime.evaluate" }));
+    expect(await onBrowser).not.toHaveProperty("sessionId");
+  });
   it("rechecks queued frames after upstream connection instead of replaying stale mutations", async () => {
     const s = await setup(150);
     const client = s.connect();

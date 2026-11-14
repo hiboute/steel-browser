@@ -15,7 +15,9 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 const added: any[] = [];
+const parkedIds = new Set<string>();
 async function setup() {
+  parkedIds.clear();
   added.length = 0;
   vi.stubEnv("STEEL_AUTH_KEYS", JSON.stringify({ [key]: { id: "agent", role: "agent" } }));
   const app = Fastify();
@@ -27,6 +29,7 @@ async function setup() {
   app.decorate("sessionService", {
     listSessions: () => [],
     activeSession: { id: "idle" },
+    isParked: (id: string) => parkedIds.has(id),
     hooks: {
       add: (hooks: any) => {
         added.push(hooks);
@@ -38,6 +41,10 @@ async function setup() {
   app.decorate("browserPool", { setSchedulingPolicy: () => {} } as any);
   await app.register(fp(async () => {}, { name: "steel-platform" }));
   app.post("/v1/sessions/:id/test", async () => ({ mutated: true }));
+  app.post("/v1/sessions/:id/resume", async () => ({ resumed: true }));
+  app.post("/v1/sessions/:id/release", async () => ({ released: true }));
+  app.post("/v1/sessions/:id/park", async () => ({ parked: true }));
+  app.patch("/v1/sessions/:id", async () => ({ updated: true }));
   app.get("/v1/sessions/:id/test", async () => ({ read: true }));
   app.post("/v1/sessions", async () => ({ created: true }));
   app.get("/v1/search", async () => ({ results: [] }));
@@ -61,6 +68,24 @@ async function setup() {
 }
 const auth = { authorization: `Bearer ${key}` };
 describe("global route fencing", () => {
+  it("lets the owner resume, rename or release a parked browser without a lease", async () => {
+    const app = await setup();
+    const call = (method: "POST" | "PATCH", url: string, headers: Record<string, string> = auth) =>
+      app.inject({ method, url, headers, payload: {} }).then((r) => r.statusCode);
+    // Live: every change still needs the current lease.
+    expect(await call("POST", "/v1/sessions/s/resume")).toBe(409);
+    expect(await call("POST", "/v1/sessions/s/release")).toBe(409);
+    expect(await call("PATCH", "/v1/sessions/s")).toBe(409);
+    parkedIds.add("s").add("other");
+    expect(await call("POST", "/v1/sessions/s/resume")).toBe(200);
+    expect(await call("POST", "/v1/sessions/s/release")).toBe(200);
+    expect(await call("PATCH", "/v1/sessions/s")).toBe(200);
+    // Other changes to a parked browser still need a lease, and ownership still holds.
+    expect(await call("POST", "/v1/sessions/s/test")).toBe(409);
+    expect(await call("POST", "/v1/sessions/s/park")).toBe(409);
+    expect(await call("POST", "/v1/sessions/other/resume")).toBe(403);
+    expect(await call("POST", "/v1/sessions/s/resume", {})).toBe(401);
+  });
   it("protects routes registered before the plugin and rejects spoofed principals", async () => {
     const app = await setup();
     expect(

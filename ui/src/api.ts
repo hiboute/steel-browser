@@ -1,5 +1,5 @@
 import type { CreateSession, ReleaseSession, SessionDetails as GeneratedSession } from "./client";
-import { controlHeaders } from "./control";
+import { controlHeaders, localControl, setLocalControl, type ControlLease } from "./control";
 
 export type SessionDetails = Omit<GeneratedSession, "status"> & {
   status: "idle" | "live" | "released" | "failed" | "parked";
@@ -55,12 +55,16 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
+      code?: unknown;
       message?: unknown;
       error?: { message?: unknown };
     } | null;
     const message = body?.message ?? body?.error?.message;
-    throw new Error(
-      typeof message === "string" ? message : `Request to ${path} failed with ${response.status}`,
+    throw Object.assign(
+      new Error(
+        typeof message === "string" ? message : `Request to ${path} failed with ${response.status}`,
+      ),
+      { code: typeof body?.code === "string" ? body.code : undefined, status: response.status },
     );
   }
   return (await response.json()) as T;
@@ -117,9 +121,11 @@ export function createSession(
 }
 
 export function releaseSession(id: string): Promise<ReleaseSession> {
-  return request<ReleaseSession>(`/v1/sessions/${encodeURIComponent(id)}/release`, {
-    method: "POST",
-  });
+  return withControl(id, () =>
+    request<ReleaseSession>(`/v1/sessions/${encodeURIComponent(id)}/release`, {
+      method: "POST",
+    }),
+  );
 }
 
 export type CookieSetSummary = {
@@ -226,11 +232,39 @@ export function mutate<T>(
   });
 }
 export const sessionPath = (id: string) => `/v1/sessions/${encodeURIComponent(id)}`;
-export const parkSession = (id: string) => mutate<SessionDetails>(`${sessionPath(id)}/park`, {});
+/**
+ * Runs a session action that needs the control lease. When this tab holds none and nobody
+ * else controls the browser, it takes control (as a person) and runs the action again, so a
+ * button does what it says in one click. When someone else is in control it says who.
+ */
+export async function withControl<T>(id: string, action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    if ((error as { code?: string }).code !== "control_required") throw error;
+  }
+  if (localControl(id)) setLocalControl(id, null); // The lease this tab held has lapsed.
+  const { lease } = await request<{ lease: ControlLease | null }>(`${sessionPath(id)}/control`);
+  if (lease)
+    throw new Error(
+      `${lease.mode === "human" ? "A person" : "An agent"} (${lease.ownerId}) controls this ` +
+        "browser. Use Take control first, then try again.",
+    );
+  const taken = await mutate<{ lease: ControlLease; token: string }>(
+    `${sessionPath(id)}/control/acquire`,
+    { mode: "human", ttlMs: 60000 },
+  );
+  setLocalControl(id, taken);
+  return action();
+}
+export const parkSession = (id: string) =>
+  withControl(id, () => mutate<SessionDetails>(`${sessionPath(id)}/park`, {}));
 export const resumeSession = (id: string, signal?: AbortSignal) =>
-  mutate<SessionDetails>(`${sessionPath(id)}/resume`, { queueTimeout: 45000 }, "POST", signal);
+  withControl(id, () =>
+    mutate<SessionDetails>(`${sessionPath(id)}/resume`, { queueTimeout: 45000 }, "POST", signal),
+  );
 export const updateSession = (id: string, body: unknown) =>
-  mutate<SessionDetails>(sessionPath(id), body, "PATCH");
+  withControl(id, () => mutate<SessionDetails>(sessionPath(id), body, "PATCH"));
 export type PoolStatus = {
   maxSessions: number;
   live: number;

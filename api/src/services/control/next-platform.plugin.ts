@@ -193,7 +193,16 @@ const plugin: FastifyPluginAsync = async (server) => {
         id = server.sessionService.activeSession.id;
       if (id) {
         const controlRoute = /\/control(?:\/|$)/.test(path);
-        access.authorizeSession(request, id, write && !controlRoute);
+        // A parked browser has no controller: parking ends every lease and nobody can take
+        // one until it runs again. Its owner (or an operator) resumes, renames or releases it
+        // without a lease, so one click on Resume works from the UI as it does from the API.
+        const parkedOwnerAction =
+          !!match &&
+          server.sessionService.isParked?.(id) === true &&
+          ((request.method === "POST" &&
+            /^\/v1\/sessions\/[^/]+\/(?:resume|release)$/.test(path)) ||
+            (request.method === "PATCH" && /^\/v1\/sessions\/[^/]+$/.test(path)));
+        access.authorizeSession(request, id, write && !controlRoute && !parkedOwnerAction);
       }
       if (
         request.steelPrincipal?.role !== "operator" &&

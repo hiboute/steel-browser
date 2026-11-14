@@ -50,9 +50,13 @@ export async function guardedCdp(
         else if (!OBSERVER.has(message.method)) throw new Error("observer");
       } catch {
         if (message?.id !== undefined)
+          // Answer on the same flattened target session: a reply without the sessionId lands on
+          // the browser session, where Playwright has no callback for the id and its driver
+          // aborts on an assertion, killing every browser of that client.
           client.send(
             JSON.stringify({
               id: message.id,
+              ...(typeof message.sessionId === "string" ? { sessionId: message.sessionId } : {}),
               error: { code: -32000, message: "Current browser control is required" },
             }),
           );
